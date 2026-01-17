@@ -1,4 +1,10 @@
-import { kv } from '@vercel/kv';
+import { createClient } from '@vercel/kv';
+
+// Create KV client - supports both standard and prefixed env var names
+const kv = createClient({
+  url: process.env.KV_REST_API_URL || process.env.mywrap_KV_REST_API_URL,
+  token: process.env.KV_REST_API_TOKEN || process.env.mywrap_KV_REST_API_TOKEN,
+});
 
 export default async function handler(req, res) {
   // Set CORS headers
