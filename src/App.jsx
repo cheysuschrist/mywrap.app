@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
-import { Share2, Plus, Trash2, ArrowRight, ArrowLeft, Sparkles, Volume2, VolumeX, Upload, X, Star, Edit3, ImagePlus, Book, Plane, Heart, GraduationCap, Film, Dumbbell, Lock, Bell, Check, ChevronRight, Lightbulb } from 'lucide-react';
+import { Share2, Plus, Trash2, ArrowRight, ArrowLeft, Sparkles, Volume2, VolumeX, Upload, X, Star, Edit3, ImagePlus, Book, Plane, Heart, GraduationCap, Film, Dumbbell, Lock, Bell, Check, ChevronRight, Lightbulb, Camera, Link, Copy, Loader2 } from 'lucide-react';
 
 export default function App() {
   const [step, setStep] = useState('home');
@@ -8,6 +8,9 @@ export default function App() {
   const [coverImage, setCoverImage] = useState(null);
   const [selectedMood, setSelectedMood] = useState('twilight');
   const [stats, setStats] = useState([{ label: '', value: '', image: null, note: '', isHighlight: false }]);
+  const [moments, setMoments] = useState([]);
+  // Content order tracks the sequence of stats and moments: [{type: 'stat', index: 0}, {type: 'moment', index: 0}, ...]
+  const [contentOrder, setContentOrder] = useState([{ type: 'stat', index: 0 }]);
   const [badges, setBadges] = useState([]);
   const [reflection, setReflection] = useState('');
   const [currentSlide, setCurrentSlide] = useState(0);
@@ -32,19 +35,35 @@ export default function App() {
   const [showTransitionPicker, setShowTransitionPicker] = useState(null);
   const [activeTransition, setActiveTransition] = useState(null);
   const [drumrollCount, setDrumrollCount] = useState(0);
+  const [drumrollFading, setDrumrollFading] = useState(false);
+  const [drumrollReveal, setDrumrollReveal] = useState(false);
+  const [showDrumrollGlitter, setShowDrumrollGlitter] = useState(false);
 
   // Summary navigation
   const [navigatedFromSummary, setNavigatedFromSummary] = useState(false);
 
   // Track which slides have had their impact animation played
   const [impactPlayedSlides, setImpactPlayedSlides] = useState(new Set());
+  const [textPlayedSlides, setTextPlayedSlides] = useState(new Set());
+  const [slideTextTheme, setSlideTextTheme] = useState({});
   
   // Homepage state
   const [notifyEmail, setNotifyEmail] = useState('');
   const [emailSubmitted, setEmailSubmitted] = useState(false);
 
+  // Shareable wraps state
+  const [wrapId, setWrapId] = useState(null);
+  const [isViewMode, setIsViewMode] = useState(false);
+  const [shareUrl, setShareUrl] = useState(null);
+  const [isSaving, setIsSaving] = useState(false);
+  const [shareModalOpen, setShareModalOpen] = useState(false);
+  const [isLoading, setIsLoading] = useState(false);
+  const [loadError, setLoadError] = useState(null);
+
   const coverRef = useRef(null);
   const audioRef = useRef(null);
+  const drumrollIntervalRef = useRef(null);
+  const drumrollTimeoutsRef = useRef([]);
 
   const transitionTypes = [
     { id: 'default', name: 'Smooth Slide', description: 'Clean slide transition' },
@@ -55,17 +74,23 @@ export default function App() {
 
   const templates = [
     { id: 'romance', name: 'Romance', icon: Heart, color: '#ec4899', mood: 'crimson',
-      stats: [{ label: 'Favorite Moment', value: '', isHighlight: true }, { label: 'Dates', value: '', isHighlight: false }, { label: 'Biggest Romantic Discovery', value: '', isHighlight: false }] },
+      stats: [{ label: 'Favorite Moment', value: '', isHighlight: true }, { label: 'Dates', value: '', isHighlight: false }, { label: 'Biggest Romantic Discovery', value: '', isHighlight: false }],
+      moments: [] },
     { id: 'books', name: 'Books', icon: Book, color: '#8b5cf6', mood: 'twilight',
-      stats: [{ label: 'Favorite Book', value: '', isHighlight: true }, { label: 'Books Read', value: '', isHighlight: false }, { label: 'Pages Read', value: '', isHighlight: false }, { label: 'Authors Discovered', value: '', isHighlight: false }] },
+      stats: [{ label: 'Favorite Book', value: '', isHighlight: true }, { label: 'Books Read', value: '', isHighlight: false }, { label: 'Pages Read', value: '', isHighlight: false }, { label: 'Authors Discovered', value: '', isHighlight: false }],
+      moments: [] },
     { id: 'travel', name: 'Travel', icon: Plane, color: '#06b6d4', mood: 'aurora',
-      stats: [{ label: 'Favorite Travel Moment', value: '', isHighlight: true }, { label: 'Places Visited', value: '', isHighlight: false }, { label: 'Favorite Photo Taken', value: '', isHighlight: false }] },
+      stats: [{ label: 'Favorite Travel Moment', value: '', isHighlight: true }, { label: 'Places Visited', value: '', isHighlight: false }],
+      moments: [{ label: 'A Moment Worth Remembering', image: null, glowColor: 'cyan' }] },
     { id: 'study', name: 'Study', icon: GraduationCap, color: '#10b981', mood: 'ocean',
-      stats: [{ label: 'Biggest Breakthrough', value: '', isHighlight: true }, { label: 'Favorite Time to Study', value: '', isHighlight: false }, { label: 'Biggest Accomplishment', value: '', isHighlight: false }] },
+      stats: [{ label: 'Biggest Breakthrough', value: '', isHighlight: true }, { label: 'Favorite Time to Study', value: '', isHighlight: false }, { label: 'Biggest Accomplishment', value: '', isHighlight: false }],
+      moments: [] },
     { id: 'movies', name: 'Movies', icon: Film, color: '#f59e0b', mood: 'bronzed',
-      stats: [{ label: 'Favorite Movie', value: '', isHighlight: true }, { label: 'Movies Watched', value: '', isHighlight: false }, { label: 'Least Favorite Movie', value: '', isHighlight: false }, { label: 'Most Watched Genre', value: '', isHighlight: false }] },
+      stats: [{ label: 'Favorite Movie', value: '', isHighlight: true }, { label: 'Movies Watched', value: '', isHighlight: false }, { label: 'Least Favorite Movie', value: '', isHighlight: false }, { label: 'Most Watched Genre', value: '', isHighlight: false }],
+      moments: [] },
     { id: 'fitness', name: 'Fitness', icon: Dumbbell, color: '#ef4444', mood: 'midnight',
-      stats: [{ label: 'Personal Record', value: '', isHighlight: true }, { label: 'Biggest Accomplishment', value: '', isHighlight: false }, { label: 'Next Fitness Goal', value: '', isHighlight: false }] },
+      stats: [{ label: 'Personal Record', value: '', isHighlight: true }, { label: 'Biggest Accomplishment', value: '', isHighlight: false }, { label: 'Next Fitness Goal', value: '', isHighlight: false }],
+      moments: [] },
   ];
 
   const moods = [
@@ -103,6 +128,16 @@ export default function App() {
     { id: 'lost', name: 'Lost in the Soul - Eliza_music', url: '/lost-in-the-soul-438449.mp3' },
     { id: 'custom', name: 'Upload Your Own Music', url: 'custom' },
   ];
+
+  // Glow colors for Moments
+  const momentGlowColors = [
+    { id: 'gold', name: 'Golden', color: '#fbbf24', glow: 'rgba(251, 191, 36, 0.6)' },
+    { id: 'rose', name: 'Rose', color: '#f472b6', glow: 'rgba(244, 114, 182, 0.6)' },
+    { id: 'cyan', name: 'Cyan', color: '#22d3ee', glow: 'rgba(34, 211, 238, 0.6)' },
+    { id: 'violet', name: 'Violet', color: '#a78bfa', glow: 'rgba(167, 139, 250, 0.6)' },
+    { id: 'emerald', name: 'Emerald', color: '#34d399', glow: 'rgba(52, 211, 153, 0.6)' },
+    { id: 'white', name: 'White', color: '#f8fafc', glow: 'rgba(248, 250, 252, 0.5)' },
+  ];
   
   const [customMusicFile, setCustomMusicFile] = useState(null);
 
@@ -110,10 +145,12 @@ export default function App() {
   const getMoodBgColors = (moodId) => moods.find(m => m.id === moodId)?.bgColors || ['#2e1065', '#3b0764', '#4a044e'];
 
   const applyTemplate = (templateId) => {
-    // If clicking the same template, uncheck it (clear stats but keep mood)
+    // If clicking the same template, uncheck it (clear stats and moments but keep mood)
     if (selectedTemplate === templateId) {
       setSelectedTemplate(null);
       setStats([{ label: '', value: '', image: null, note: '', isHighlight: false }]);
+      setMoments([]);
+      setContentOrder([{ type: 'stat', index: 0 }]);
       // Keep the current mood - don't reset it
       return;
     }
@@ -121,7 +158,16 @@ export default function App() {
     const template = templates.find(t => t.id === templateId);
     if (template) {
       setSelectedTemplate(templateId);
-      setStats(template.stats.map(s => ({ ...s, image: null, note: '' })));
+      const newStats = template.stats.map(s => ({ ...s, image: null, note: '' }));
+      const newMoments = template.moments ? template.moments.map(m => ({ ...m })) : [];
+      setStats(newStats);
+      setMoments(newMoments);
+      // Build content order: all stats first, then all moments
+      const newContentOrder = [
+        ...newStats.map((_, i) => ({ type: 'stat', index: i })),
+        ...newMoments.map((_, i) => ({ type: 'moment', index: i }))
+      ];
+      setContentOrder(newContentOrder);
       setSelectedMood(template.mood);
     }
   };
@@ -141,8 +187,19 @@ export default function App() {
     setShowTransitionPicker(null);
   };
 
-  const addStat = () => setStats([...stats, { label: '', value: '', image: null, note: '', isHighlight: false }]);
-  const removeStat = (index) => setStats(stats.filter((_, i) => i !== index));
+  const addStat = () => {
+    const newIndex = stats.length;
+    setStats([...stats, { label: '', value: '', image: null, note: '', isHighlight: false }]);
+    setContentOrder([...contentOrder, { type: 'stat', index: newIndex }]);
+  };
+  const removeStat = (index) => {
+    setStats(stats.filter((_, i) => i !== index));
+    // Update contentOrder: remove this stat and adjust indices for remaining stats
+    setContentOrder(contentOrder
+      .filter(item => !(item.type === 'stat' && item.index === index))
+      .map(item => item.type === 'stat' && item.index > index ? { ...item, index: item.index - 1 } : item)
+    );
+  };
   const updateStat = (index, field, value) => {
     const newStats = [...stats];
     newStats[index][field] = value;
@@ -156,6 +213,26 @@ export default function App() {
     const newBadges = [...badges];
     newBadges[index][field] = value;
     setBadges(newBadges);
+  };
+
+  // Moment functions
+  const addMoment = () => {
+    const newIndex = moments.length;
+    setMoments([...moments, { label: '', image: null, glowColor: 'gold' }]);
+    setContentOrder([...contentOrder, { type: 'moment', index: newIndex }]);
+  };
+  const removeMoment = (index) => {
+    setMoments(moments.filter((_, i) => i !== index));
+    // Update contentOrder: remove this moment and adjust indices for remaining moments
+    setContentOrder(contentOrder
+      .filter(item => !(item.type === 'moment' && item.index === index))
+      .map(item => item.type === 'moment' && item.index > index ? { ...item, index: item.index - 1 } : item)
+    );
+  };
+  const updateMoment = (index, field, value) => {
+    const newMoments = [...moments];
+    newMoments[index][field] = value;
+    setMoments(newMoments);
   };
 
   const [imageFormatError, setImageFormatError] = useState(null);
@@ -207,6 +284,26 @@ export default function App() {
   };
 
   const removeImage = (index) => { const newStats = [...stats]; newStats[index].image = null; setStats(newStats); };
+
+  // Moment image upload
+  const handleMomentImageUpload = (index, file) => {
+    if (!file) return;
+    const fileExtension = file.name.toLowerCase().split('.').pop();
+    const isHeic = fileExtension === 'heic' || fileExtension === 'heif' || unsupportedFormats.includes(file.type);
+    if (isHeic) {
+      setImageFormatError('HEIC/HEIF format is not supported. Please use JPEG, PNG, GIF, or WebP.');
+      setTimeout(() => setImageFormatError(null), 5000);
+      return;
+    }
+    if (file.type.startsWith('image/') || ['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg'].includes(fileExtension)) {
+      const reader = new FileReader();
+      reader.onload = (e) => { const newMoments = [...moments]; newMoments[index].image = e.target.result; setMoments(newMoments); };
+      reader.readAsDataURL(file);
+    } else {
+      setImageFormatError('Unsupported image format. Please use JPEG, PNG, GIF, or WebP.');
+      setTimeout(() => setImageFormatError(null), 5000);
+    }
+  };
 
   // Music handling - toggle only via button
   const handleMusicSelect = (musicId) => {
@@ -312,50 +409,202 @@ export default function App() {
 
   const resetWrapped = () => {
     setTitle(''); setDateRange(''); setCoverImage(null); setSelectedMood('twilight');
-    setStats([{ label: '', value: '', image: null, note: '', isHighlight: false }]); setBadges([]);
+    setStats([{ label: '', value: '', image: null, note: '', isHighlight: false }]); setMoments([]); setBadges([]);
+    setContentOrder([{ type: 'stat', index: 0 }]);
     setReflection(''); setSelectedMusic(''); setStep('input'); setCurrentSlide(0);
     setViewedHighlights(new Set()); setViewedBadges(new Set()); setViewedReflection(false);
     setShowConfetti(false); setAttemptedSubmit(false); setValidationErrors({}); setSelectedTemplate(null);
     setTransitions({}); setCustomMusicFile(null);
     if (audioRef.current) { audioRef.current.pause(); audioRef.current.src = ''; audioRef.current = null; }
     setAudioPlaying(false);
+    // Reset shareable state
+    setWrapId(null); setIsViewMode(false); setShareUrl(null); setShareModalOpen(false);
+    // Navigate to home and clear URL
+    window.history.pushState({}, '', '/');
   };
+
+  // Load a shared wrap from the API
+  const loadWrap = useCallback(async (id) => {
+    setIsLoading(true);
+    setLoadError(null);
+    try {
+      const res = await fetch(`/api/wraps/${id}`);
+
+      // Check if response is JSON (API might not be available locally)
+      const contentType = res.headers.get('content-type');
+      if (!contentType || !contentType.includes('application/json')) {
+        setLoadError('API not available. Please deploy to Vercel or run with `vercel dev`.');
+        setIsLoading(false);
+        return;
+      }
+
+      if (!res.ok) {
+        if (res.status === 404) {
+          setLoadError('This wrap was not found or may have expired.');
+        } else {
+          setLoadError('Failed to load wrap. Please try again.');
+        }
+        setIsLoading(false);
+        return;
+      }
+      const data = await res.json();
+
+      // Populate state with loaded data
+      setTitle(data.title || '');
+      setDateRange(data.dateRange || '');
+      setCoverImage(data.coverImage || null);
+      setSelectedMood(data.selectedMood || 'twilight');
+      setStats(data.stats || [{ label: '', value: '', image: null, note: '', isHighlight: false }]);
+      setMoments(data.moments || []);
+      setBadges(data.badges || []);
+      setReflection(data.reflection || '');
+      setContentOrder(data.contentOrder || [{ type: 'stat', index: 0 }]);
+      setSelectedMusic(data.selectedMusic || '');
+      setTransitions(data.transitions || {});
+
+      // Set view mode and navigate to preview
+      setWrapId(id);
+      setIsViewMode(true);
+      setStep('preview');
+      setCurrentSlide(0);
+      setIsLoading(false);
+    } catch (error) {
+      console.error('Error loading wrap:', error);
+      setLoadError('Failed to load wrap. Please try again.');
+      setIsLoading(false);
+    }
+  }, []);
+
+  // Check URL on mount for shared wrap
+  useEffect(() => {
+    const path = window.location.pathname;
+    const match = path.match(/^\/w\/([a-zA-Z0-9_-]+)$/);
+    if (match) {
+      loadWrap(match[1]);
+    }
+  }, [loadWrap]);
 
   useEffect(() => { if (attemptedSubmit) validateForm(); }, [title, dateRange, stats, attemptedSubmit]);
 
   const validStats = stats.filter(s => s.label && s.value);
+  const validMoments = moments.filter(m => m.label && m.image);
   const validBadges = badges.filter(b => b.emoji && b.title);
   const hasReflection = reflection.trim() !== '';
-  const totalSlides = validStats.length + validBadges.length + (hasReflection ? 1 : 0) + 2;
 
-  const executeTransition = useCallback((transitionData, _direction, callback) => {
+  // Build valid content order - filters contentOrder to only include valid items
+  const validContentOrder = contentOrder.filter(item => {
+    if (item.type === 'stat') return stats[item.index]?.label && stats[item.index]?.value;
+    if (item.type === 'moment') return moments[item.index]?.label && moments[item.index]?.image;
+    return false;
+  });
+
+  const totalSlides = validContentOrder.length + validBadges.length + (hasReflection ? 1 : 0) + 2;
+
+  // Save wrap and get shareable link
+  const saveWrap = useCallback(async () => {
+    if (isSaving) return;
+    setIsSaving(true);
+
+    try {
+      const wrapData = {
+        title,
+        dateRange,
+        selectedMood,
+        stats: validStats,
+        moments: validMoments,
+        badges: validBadges,
+        reflection,
+        contentOrder: validContentOrder,
+        coverImage,
+        selectedMusic,
+        transitions,
+      };
+
+      const res = await fetch('/api/wraps/create', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(wrapData),
+      });
+
+      // Check if response is JSON (API might not be available locally)
+      const contentType = res.headers.get('content-type');
+      if (!contentType || !contentType.includes('application/json')) {
+        throw new Error('API not available. Deploy to Vercel or run with `vercel dev` to enable sharing.');
+      }
+
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => ({}));
+        throw new Error(errorData.error || 'Failed to save wrap');
+      }
+
+      const { id, url } = await res.json();
+      setWrapId(id);
+      setShareUrl(url);
+      setShareModalOpen(true);
+
+      // Update URL without reloading
+      window.history.pushState({}, '', `/w/${id}`);
+    } catch (error) {
+      console.error('Error saving wrap:', error);
+      // Show more helpful error message
+      const isLocalDev = window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1';
+      if (isLocalDev && error.message.includes('API not available')) {
+        alert('Sharing requires the Vercel backend.\n\nTo test locally, run: vercel dev\n\nOr deploy to Vercel to enable sharing.');
+      } else {
+        alert(error.message || 'Failed to save wrap. Please try again.');
+      }
+    } finally {
+      setIsSaving(false);
+    }
+  }, [title, dateRange, selectedMood, validStats, validMoments, validBadges, reflection, validContentOrder, coverImage, selectedMusic, transitions, isSaving]);
+
+  const executeTransition = useCallback((transitionData, _direction, callback, destSlide) => {
     const transitionType = transitionData?.type || transitionData || 'default';
 
     if (transitionType === 'drumroll') {
       setActiveTransition('drumroll');
       setDrumrollCount(3);
+      setDrumrollReveal(false);
+      setShowDrumrollGlitter(false);
+      // Clear any previous drumroll timers
+      if (drumrollIntervalRef.current) clearInterval(drumrollIntervalRef.current);
+      drumrollTimeoutsRef.current.forEach(t => clearTimeout(t));
+      drumrollTimeoutsRef.current = [];
+
       const countdown = setInterval(() => {
         setDrumrollCount(prev => {
           if (prev <= 1) {
             clearInterval(countdown);
-            setTimeout(() => {
+            drumrollIntervalRef.current = null;
+            callback();
+            setDrumrollReveal(true);
+            setDrumrollFading(true);
+            setShowDrumrollGlitter(true);
+            const glitterTimeout = setTimeout(() => setShowDrumrollGlitter(false), 5500);
+            drumrollTimeoutsRef.current.push(glitterTimeout);
+            const clearTimeoutMs = 600 + 5500;
+            const clearTimeout2 = setTimeout(() => {
+              setDrumrollFading(false);
               setActiveTransition(null);
-              callback();
-            }, 600);
+              setDrumrollReveal(false);
+            }, clearTimeoutMs);
+            drumrollTimeoutsRef.current.push(clearTimeout2);
             return 0;
           }
           return prev - 1;
         });
       }, 800);
+      drumrollIntervalRef.current = countdown;
     } else if (transitionType === 'impact') {
       // First change the slide, then show impact animation on the new slide
       callback();
       // Small delay to let slide change, then trigger impact animation
       setTimeout(() => {
         setActiveTransition('impact');
-        // Mark this slide as having played its impact animation
-        const destSlide = currentSlide + 1;
-        setImpactPlayedSlides(prev => new Set([...prev, destSlide]));
+        // Mark this slide as having played its impact animation (only if destSlide provided)
+        if (typeof destSlide === 'number') {
+          setImpactPlayedSlides(prev => new Set([...prev, destSlide]));
+        }
         // Clear impact transition after animation completes (longer duration for savoring)
         setTimeout(() => {
           setActiveTransition(null);
@@ -366,35 +615,72 @@ export default function App() {
     }
   }, []);
 
+  // Clean function to skip drumroll immediately
+  const skipDrumroll = useCallback(() => {
+    if (drumrollIntervalRef.current) {
+      clearInterval(drumrollIntervalRef.current);
+      drumrollIntervalRef.current = null;
+    }
+    drumrollTimeoutsRef.current.forEach(t => clearTimeout(t));
+    drumrollTimeoutsRef.current = [];
+    setActiveTransition(null);
+    setDrumrollFading(false);
+    setDrumrollReveal(false);
+    setDrumrollCount(0);
+    setShowDrumrollGlitter(false);
+  }, []);
+
   const nextSlide = useCallback(() => {
-    const isBlocking = activeTransition === 'drumroll'; // Only drumroll blocks navigation
-    if (currentSlide < totalSlides - 1 && !isAnimating && !isBlocking) {
+    // Allow navigation during drumroll transition
+    const canNavigate = !isAnimating || activeTransition === 'drumroll';
+    if (currentSlide < totalSlides - 1 && canNavigate) {
+      // If skipping during drumroll, clean up immediately
+      if (activeTransition === 'drumroll') {
+        skipDrumroll();
+      }
       // Clear drumroll sparkles when moving to next slide
       setShowDrumrollGlitter(false);
       const destinationSlide = currentSlide + 1;
       const transitionData = transitions[destinationSlide];
       setSlideDirection('next');
-      setIsAnimating(true);
+      // If this transition is a drumroll, don't set isAnimating so user can navigate during countdown
+      const isDrum = (transitionData?.type || transitionData) === 'drumroll';
+      if (!isDrum) setIsAnimating(true);
 
       executeTransition(transitionData, 'next', () => {
-        setTimeout(() => {
+        if (isDrum) {
+          // For drumroll: reveal the slide immediately (under the overlay) and allow a soft fade-in
           setCurrentSlide(destinationSlide);
+          // keep isAnimating as false so user can navigate while drumroll is running
           setIsAnimating(false);
+          setDrumrollReveal(true);
           if (destinationSlide === totalSlides - 1) setShowConfetti(true);
-        }, (transitionData?.type || transitionData) === 'default' || !transitionData ? 400 : 100);
-      });
+        } else {
+          setTimeout(() => {
+            setCurrentSlide(destinationSlide);
+            setIsAnimating(false);
+            if (destinationSlide === totalSlides - 1) setShowConfetti(true);
+          }, (transitionData?.type || transitionData) === 'default' || !transitionData ? 400 : 100);
+        }
+      }, destinationSlide);
     }
-  }, [currentSlide, totalSlides, isAnimating, activeTransition, transitions, executeTransition]);
+  }, [currentSlide, totalSlides, isAnimating, activeTransition, transitions, executeTransition, skipDrumroll]);
 
   const prevSlide = useCallback(() => {
-    const isBlocking = activeTransition === 'drumroll'; // Only drumroll blocks navigation
-    if (currentSlide > 0 && !isAnimating && !isBlocking) {
+    // Allow navigation during drumroll transition
+    const canNavigate = !isAnimating || activeTransition === 'drumroll';
+    if (currentSlide > 0 && canNavigate) {
+      // If skipping during drumroll, clean up immediately
+      if (activeTransition === 'drumroll') {
+        skipDrumroll();
+      }
       // Clear drumroll sparkles when moving to prev slide
       setShowDrumrollGlitter(false);
+      setDrumrollReveal(false);
       setSlideDirection('prev'); setIsAnimating(true); setShowConfetti(false);
       setTimeout(() => { setCurrentSlide(prev => prev - 1); setIsAnimating(false); }, 400);
     }
-  }, [currentSlide, isAnimating, activeTransition]);
+  }, [currentSlide, isAnimating, activeTransition, skipDrumroll]);
 
   useEffect(() => {
     const handleKeyDown = (e) => { if (step !== 'preview') return; if (e.key === 'ArrowRight') nextSlide(); else if (e.key === 'ArrowLeft') prevSlide(); };
@@ -414,7 +700,23 @@ export default function App() {
     setMousePosition({ x: ((e.clientX - rect.left) / rect.width) * 100, y: ((e.clientY - rect.top) / rect.height) * 100 }); 
   };
 
-  const shareWrapped = () => { navigator.clipboard.writeText(window.location.href); alert('Link copied to clipboard!'); };
+  // Share button handler - saves wrap if not already saved, then shows modal
+  const shareWrapped = async () => {
+    if (shareUrl) {
+      // Already saved, just open the modal
+      setShareModalOpen(true);
+    } else {
+      // Save and get shareable link
+      await saveWrap();
+    }
+  };
+
+  // Copy share URL to clipboard
+  const copyShareUrl = () => {
+    if (shareUrl) {
+      navigator.clipboard.writeText(shareUrl);
+    }
+  };
 
   const navigateToSlideFromSummary = (slideIndex) => {
     setNavigatedFromSummary(true);
@@ -438,20 +740,70 @@ export default function App() {
 
   const getSlideType = (slideIndex) => {
     if (slideIndex === 0) return { type: 'title' };
-    if (slideIndex <= validStats.length) return { type: 'stat', index: slideIndex - 1 };
-    const afterStats = slideIndex - validStats.length - 1;
-    if (afterStats < validBadges.length) return { type: 'badge', index: afterStats };
-    if (hasReflection && afterStats - validBadges.length === 0) return { type: 'reflection' };
+    // Content slides (stats and moments interleaved)
+    const contentIndex = slideIndex - 1;
+    if (contentIndex < validContentOrder.length) {
+      const item = validContentOrder[contentIndex];
+      return { type: item.type, index: item.index, contentIndex };
+    }
+    // After content: badges, reflection, summary
+    const afterContent = contentIndex - validContentOrder.length;
+    if (afterContent < validBadges.length) return { type: 'badge', index: afterContent };
+    if (hasReflection && afterContent - validBadges.length === 0) return { type: 'reflection' };
     return { type: 'summary' };
   };
 
   const currentSlideInfo = getSlideType(currentSlide);
 
   useEffect(() => {
-    if (currentSlideInfo.type === 'stat') { const statIndex = currentSlideInfo.index; if (validStats[statIndex]?.isHighlight && !viewedHighlights.has(statIndex)) { setViewedHighlights(prev => new Set([...prev, statIndex])); } }
+    if (currentSlideInfo.type === 'stat') {
+      const statIndex = currentSlideInfo.index;
+      if (validStats[statIndex]?.isHighlight && !viewedHighlights.has(statIndex)) {
+        // delay marking highlights as viewed so highlight animations (glow + stars) can play
+        const markTimeout = setTimeout(() => {
+          setViewedHighlights(prev => new Set([...prev, statIndex]));
+        }, 1200);
+        return () => clearTimeout(markTimeout);
+      }
+    }
     if (currentSlideInfo.type === 'badge') { const badgeIndex = currentSlideInfo.index; if (!viewedBadges.has(badgeIndex)) { setViewedBadges(prev => new Set([...prev, badgeIndex])); } }
     if (currentSlideInfo.type === 'reflection' && !viewedReflection) { setViewedReflection(true); }
   }, [currentSlide, currentSlideInfo, validStats, viewedHighlights, viewedBadges, viewedReflection]);
+
+  // Mark non-highlight text reveal as played shortly after it starts to avoid replaying
+  useEffect(() => {
+    if (currentSlideInfo.type !== 'stat') return;
+    const statIndex = currentSlideInfo.index;
+    const stat = validStats[statIndex];
+    if (!stat) return;
+    const impactAlreadyPlayed = impactPlayedSlides.has(currentSlide);
+    const wouldShowTextReveal = activeTransition !== 'impact' && activeTransition !== 'drumroll' && !impactAlreadyPlayed && !textPlayedSlides.has(currentSlide);
+    if (wouldShowTextReveal) {
+      // assign a randomized theme for this slide if not already set (and no custom transition)
+      const transitionData = transitions[currentSlide];
+      if (!slideTextTheme[currentSlide] && (!transitionData || (transitionData?.type || transitionData) === 'default')) {
+        setSlideTextTheme(prev => ({ ...prev, [currentSlide]: Math.floor(Math.random() * 3) }));
+      }
+      const t = setTimeout(() => {
+        setTextPlayedSlides(prev => new Set([...prev, currentSlide]));
+      }, 80);
+      return () => clearTimeout(t);
+    }
+  }, [currentSlide, currentSlideInfo, validStats, activeTransition, impactPlayedSlides, textPlayedSlides]);
+
+  // Ensure a randomized text theme exists for slides without a custom transition when first entering
+  useEffect(() => {
+    const sd = currentSlide;
+    const transitionData = transitions[sd];
+    const slideInfo = getSlideType(sd);
+    if (slideInfo.type !== 'stat') return;
+    const stat = validStats[slideInfo.index];
+    if (!stat) return;
+    if (slideTextTheme[sd] !== undefined) return; // already assigned
+    if (transitionData && (transitionData?.type || transitionData) !== 'default') return; // has custom transition
+    // assign now so the animation theme is randomized but stable on first view
+    setSlideTextTheme(prev => ({ ...prev, [sd]: Math.floor(Math.random() * 3) }));
+  }, [currentSlide, transitions, validStats, slideTextTheme]);
 
   const formatValue = (value) => {
     if (!isNaN(value) && value.trim() !== '') return <div className="text-6xl sm:text-8xl font-black tracking-tight">{value}</div>;
@@ -618,21 +970,23 @@ export default function App() {
   };
 
   // Track if we just finished drumroll for glitter effect
-  const [showDrumrollGlitter, setShowDrumrollGlitter] = useState(false);
+  
 
   // Drumroll Overlay
-  const DrumrollOverlay = ({ count }) => {
-    useEffect(() => {
-      if (count === 0) {
-        setShowDrumrollGlitter(true);
-        // Keep sparkles for 5 seconds or until user navigates
-        setTimeout(() => setShowDrumrollGlitter(false), 5500);
-      }
-    }, [count]);
+  const DrumrollOverlay = ({ count, fading, onSkip }) => {
+    // glitter is managed by the executeTransition handler to keep glow+glitter in sync
 
     return (
-      <div className="fixed inset-0 z-40 flex items-center justify-center">
+      <div
+        className="fixed inset-0 z-40 flex items-center justify-center cursor-pointer"
+        style={{ transition: 'opacity 600ms ease', opacity: fading ? 0 : 1 }}
+        onClick={onSkip}
+      >
         <div className="absolute inset-0 bg-black/50 backdrop-blur-sm" />
+        {/* Skip hint */}
+        <div className="absolute bottom-8 left-1/2 -translate-x-1/2 text-white/50 text-sm uppercase tracking-wider animate-pulse">
+          Tap to skip
+        </div>
         <div className="absolute w-96 h-96 rounded-full blur-3xl animate-spotlight opacity-30"
           style={{ background: 'radial-gradient(circle, rgba(255,255,255,0.4) 0%, transparent 70%)' }} />
         {count > 0 && (
@@ -673,6 +1027,52 @@ export default function App() {
             ))}
           </div>
           <button onClick={onClose} className="w-full mt-5 py-3 bg-white/10 hover:bg-white/20 rounded-xl text-white/60 text-sm font-medium transition-colors border border-white/10">Cancel</button>
+        </div>
+      </div>
+    );
+  };
+
+  // Share Modal - shows shareable link after saving
+  const ShareModal = ({ url, onClose }) => {
+    const [copied, setCopied] = useState(false);
+
+    const handleCopy = () => {
+      navigator.clipboard.writeText(url);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    };
+
+    return (
+      <div className={`fixed inset-0 z-50 flex items-center justify-center ${isSafari ? 'bg-black/60' : 'bg-black/40 backdrop-blur-sm'}`} onClick={onClose}>
+        <div className={`rounded-2xl p-6 border border-white/20 max-w-md w-full mx-4 shadow-2xl ${isSafari ? 'bg-gray-900/95' : 'bg-white/10 backdrop-blur-2xl'}`} onClick={e => e.stopPropagation()}>
+          <div className="text-center mb-6">
+            <div className="w-16 h-16 rounded-full bg-gradient-to-br from-green-400 to-emerald-500 flex items-center justify-center mx-auto mb-4">
+              <Check size={32} className="text-white" />
+            </div>
+            <h3 className="text-xl font-bold text-white mb-2">Your Wrap is Ready!</h3>
+            <p className="text-white/60 text-sm">Share this link with friends so they can view your wrap.</p>
+          </div>
+
+          <div className="bg-black/30 rounded-xl p-4 mb-4">
+            <div className="flex items-center gap-3">
+              <Link size={18} className="text-white/50 flex-shrink-0" />
+              <div className="flex-1 min-w-0">
+                <p className="text-white text-sm font-mono truncate">{url}</p>
+              </div>
+            </div>
+          </div>
+
+          <button
+            onClick={handleCopy}
+            className={`w-full py-4 rounded-xl font-bold text-base uppercase tracking-wide transition-all flex items-center justify-center gap-2 ${copied ? 'bg-green-500 text-white' : 'bg-white text-black hover:bg-white/90'}`}
+          >
+            {copied ? <Check size={18} /> : <Copy size={18} />}
+            {copied ? 'Copied!' : 'Copy Link'}
+          </button>
+
+          <button onClick={onClose} className="w-full mt-3 py-3 bg-white/10 hover:bg-white/20 rounded-xl text-white/60 text-sm font-medium transition-colors border border-white/10">
+            Close
+          </button>
         </div>
       </div>
     );
@@ -730,8 +1130,8 @@ export default function App() {
   };
 
   const HighlightGlowRing = ({ isFirstView }) => {
-    if (!isFirstView) return null;
-    return (<><div className="absolute inset-0 rounded-3xl overflow-hidden pointer-events-none"><div className="absolute inset-0 animate-glow-ring"><div className="absolute inset-[-2px] rounded-3xl border-4 border-yellow-400/80" style={{ background: 'conic-gradient(from 0deg, transparent 0deg, rgba(250, 204, 21, 0.8) 30deg, rgba(250, 204, 21, 1) 60deg, rgba(250, 204, 21, 0.8) 90deg, transparent 120deg)', mask: 'linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0)', maskComposite: 'exclude', WebkitMaskComposite: 'xor', padding: '4px' }} /></div></div><div className="absolute inset-0 rounded-3xl animate-glow-pulse pointer-events-none" style={{ boxShadow: '0 0 80px rgba(250, 204, 21, 0.6), 0 0 120px rgba(250, 204, 21, 0.4), inset 0 0 80px rgba(250, 204, 21, 0.15)' }} /><style>{`@keyframes glow-ring { 0% { transform: rotate(0deg); opacity: 1; } 100% { transform: rotate(360deg); opacity: 0; } } @keyframes glow-pulse { 0% { opacity: 0; } 50% { opacity: 1; } 100% { opacity: 0.6; } } .animate-glow-ring { animation: glow-ring 1.5s ease-out forwards; } .animate-glow-pulse { animation: glow-pulse 1.5s ease-out forwards; }`}</style></>);
+    // Always render glow DOM but only run animations when isFirstView is true so the DOM isn't unmounted/remounted
+    return (<><div className="absolute inset-0 rounded-3xl overflow-hidden pointer-events-none"><div className={`absolute inset-0 ${isFirstView ? 'animate-glow-ring' : ''}`}><div className="absolute inset-[-2px] rounded-3xl border-4 border-yellow-400/80" style={{ background: 'conic-gradient(from 0deg, transparent 0deg, rgba(250, 204, 21, 0.8) 30deg, rgba(250, 204, 21, 1) 60deg, rgba(250, 204, 21, 0.8) 90deg, transparent 120deg)', mask: 'linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0)', maskComposite: 'exclude', WebkitMaskComposite: 'xor', padding: '4px' }} /></div></div><div className={`absolute inset-0 rounded-3xl ${isFirstView ? 'animate-glow-pulse' : ''} pointer-events-none`} style={{ boxShadow: '0 0 80px rgba(250, 204, 21, 0.6), 0 0 120px rgba(250, 204, 21, 0.4), inset 0 0 80px rgba(250, 204, 21, 0.15)' }} /><style>{`@keyframes glow-ring { 0% { transform: rotate(0deg); opacity: 1; } 100% { transform: rotate(360deg); opacity: 0; } } @keyframes glow-pulse { 0% { opacity: 0; } 50% { opacity: 1; } 100% { opacity: 0.6; } } .animate-glow-ring { animation: glow-ring 1.5s ease-out forwards; } .animate-glow-pulse { animation: glow-pulse 1.5s ease-out forwards; }`}</style></>);
   };
 
   const ReflectionGlowRing = ({ isFirstView }) => {
@@ -739,7 +1139,7 @@ export default function App() {
     return (<><div className="absolute inset-0 rounded-3xl overflow-hidden pointer-events-none"><div className="absolute inset-0 animate-reflection-ring"><div className="absolute inset-[-2px] rounded-3xl border-4 border-white/80" style={{ background: 'conic-gradient(from 0deg, transparent 0deg, rgba(255, 255, 255, 0.6) 30deg, rgba(255, 255, 255, 0.9) 60deg, rgba(255, 255, 255, 0.6) 90deg, transparent 120deg)', mask: 'linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0)', maskComposite: 'exclude', WebkitMaskComposite: 'xor', padding: '4px' }} /></div></div><div className="absolute inset-0 rounded-3xl animate-reflection-pulse pointer-events-none" style={{ boxShadow: '0 0 60px rgba(255, 255, 255, 0.4), 0 0 100px rgba(255, 255, 255, 0.2), inset 0 0 60px rgba(255, 255, 255, 0.1)' }} /><style>{`@keyframes reflection-ring { 0% { transform: rotate(0deg); opacity: 1; } 100% { transform: rotate(360deg); opacity: 0; } } @keyframes reflection-pulse { 0% { opacity: 0; } 50% { opacity: 1; } 100% { opacity: 0.5; } } .animate-reflection-ring { animation: reflection-ring 2s ease-out forwards; } .animate-reflection-pulse { animation: reflection-pulse 2s ease-out forwards; }`}</style></>);
   };
 
-  const RainbowTitle = ({ children }) => {
+  const RainbowTitle = ({ children, hasCoverImage = false }) => {
     const titleLength = typeof children === 'string' ? children.length : 0;
     // Dynamically size based on title length
     const sizeClass = titleLength > 20
@@ -748,9 +1148,14 @@ export default function App() {
         ? 'text-4xl sm:text-5xl md:text-6xl'
         : 'text-5xl sm:text-6xl md:text-7xl';
 
+    // Use white aura when cover image is present, rainbow otherwise
+    const auraStyle = hasCoverImage
+      ? { background: 'radial-gradient(circle, rgba(255,255,255,0.8) 0%, rgba(255,255,255,0.4) 50%, transparent 70%)' }
+      : { background: 'linear-gradient(90deg, #ff0080, #ff8c00, #ffef00, #00ff88, #00cfff, #8000ff, #ff0080)', backgroundSize: '200% 100%' };
+
     return (
       <div className="relative inline-block">
-        <div className="absolute inset-0 blur-3xl opacity-70 animate-rainbow-glow" style={{ background: 'linear-gradient(90deg, #ff0080, #ff8c00, #ffef00, #00ff88, #00cfff, #8000ff, #ff0080)', backgroundSize: '200% 100%' }} />
+        <div className={`absolute inset-0 blur-3xl opacity-70 ${!hasCoverImage ? 'animate-rainbow-glow' : ''}`} style={auraStyle} />
         <h1 className={`relative ${sizeClass} font-black text-white tracking-tight leading-tight break-words max-w-full drop-shadow-2xl`}>{children}</h1>
         <style>{`@keyframes rainbow-glow { 0%, 100% { background-position: 0% 50%; } 50% { background-position: 100% 50%; } } .animate-rainbow-glow { animation: rainbow-glow 3s ease-in-out infinite; }`}</style>
       </div>
@@ -762,6 +1167,90 @@ export default function App() {
     sound.volume = 0.5;
     sound.play().catch(err => console.log('Badge sound play failed:', err));
   }, []);
+
+  // Moment Slide - immersive photo-first experience
+  const MomentSlide = ({ moment, isFirstView, dateRange }) => {
+    const [shouldAnimate] = useState(isFirstView);
+    const glowConfig = momentGlowColors.find(g => g.id === moment.glowColor) || momentGlowColors[0];
+
+    return (
+      <div
+        className={`relative rounded-3xl overflow-hidden shadow-2xl min-h-[600px] sm:min-h-[650px] flex flex-col ${activeTransition === 'drumroll' ? 'drumroll-glow' : ''} ${activeTransition === 'impact' ? 'animate-impact-slam' : ''}`}
+        style={{
+          boxShadow: `0 0 60px ${glowConfig.glow}, 0 0 120px ${glowConfig.glow.replace('0.6', '0.3')}`,
+        }}
+      >
+        {/* Full-bleed image - optimized for vertical photos */}
+        <div className="absolute inset-0">
+          <img
+            src={moment.image}
+            alt={moment.label}
+            className={`w-full h-full object-cover ${shouldAnimate ? 'animate-moment-zoom' : ''}`}
+          />
+          {/* Subtle gradient for text readability - only at bottom */}
+          <div className="absolute inset-0 bg-gradient-to-t from-black/70 via-transparent to-transparent" />
+        </div>
+
+        {/* Glowing frame border */}
+        <div
+          className="absolute inset-0 rounded-3xl pointer-events-none"
+          style={{
+            boxShadow: `inset 0 0 30px ${glowConfig.glow}, inset 0 0 60px ${glowConfig.glow.replace('0.6', '0.2')}`,
+            border: `2px solid ${glowConfig.color}40`,
+          }}
+        />
+
+        {/* Animated glow ring on first view */}
+        {shouldAnimate && (
+          <div className="absolute inset-0 rounded-3xl pointer-events-none overflow-hidden">
+            <div
+              className="absolute inset-[-2px] rounded-3xl animate-moment-glow-ring"
+              style={{
+                background: `conic-gradient(from 0deg, transparent 0deg, ${glowConfig.color}80 30deg, ${glowConfig.color} 60deg, ${glowConfig.color}80 90deg, transparent 120deg)`,
+                mask: 'linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0)',
+                maskComposite: 'exclude',
+                WebkitMaskComposite: 'xor',
+                padding: '3px',
+              }}
+            />
+          </div>
+        )}
+
+        {/* Content overlay at bottom */}
+        <div className="relative z-10 mt-auto p-6 sm:p-8">
+          <div className={`${shouldAnimate ? 'animate-moment-text' : ''}`}>
+            <div className="text-white/60 text-sm font-bold uppercase tracking-widest mb-2">A Moment</div>
+            <h2
+              className="text-2xl sm:text-3xl md:text-4xl font-black text-white leading-tight"
+              style={{ textShadow: '0 2px 20px rgba(0,0,0,0.5)' }}
+            >
+              {moment.label}
+            </h2>
+          </div>
+          <div className="text-white/40 font-bold text-sm uppercase tracking-widest mt-6">{dateRange || 'Wrapped'}</div>
+        </div>
+
+        <style>{`
+          @keyframes moment-zoom {
+            0% { transform: scale(1.1); opacity: 0.8; }
+            100% { transform: scale(1); opacity: 1; }
+          }
+          @keyframes moment-glow-ring {
+            0% { transform: rotate(0deg); opacity: 1; }
+            100% { transform: rotate(360deg); opacity: 0; }
+          }
+          @keyframes moment-text {
+            0% { opacity: 0; transform: translateY(20px); }
+            50% { opacity: 0; transform: translateY(20px); }
+            100% { opacity: 1; transform: translateY(0); }
+          }
+          .animate-moment-zoom { animation: moment-zoom 1.2s ease-out forwards; }
+          .animate-moment-glow-ring { animation: moment-glow-ring 1.8s ease-out forwards; }
+          .animate-moment-text { animation: moment-text 1.4s ease-out forwards; }
+        `}</style>
+      </div>
+    );
+  };
 
   const BadgeSlide = ({ badge, isFirstView, dateRange }) => {
     const [shouldAnimate] = useState(isFirstView);
@@ -1001,8 +1490,8 @@ export default function App() {
       // Don't animate in if we just finished a transition (prevents double animation)
       return '';
     }
-    // Don't use slide animations during impact - it has its own animation
-    if (activeTransition === 'impact') return '';
+    // Don't use slide animations during impact or drumroll - they have their own visuals
+    if (activeTransition === 'impact' || activeTransition === 'drumroll') return '';
     return slideDirection === 'next' ? 'animate-slide-out-left' : 'animate-slide-out-right';
   };
 
@@ -1026,12 +1515,41 @@ export default function App() {
       'Analytics dashboard'
     ];
 
-    const handleNotifySubmit = (e) => {
+    const [isSubmittingEmail, setIsSubmittingEmail] = useState(false);
+
+    const handleNotifySubmit = async (e) => {
       e.preventDefault();
-      if (notifyEmail) {
-        setEmailSubmitted(true);
-        // Here you would typically send this to your backend
-        console.log('Email submitted:', notifyEmail);
+      if (notifyEmail && !isSubmittingEmail) {
+        setIsSubmittingEmail(true);
+        try {
+          const res = await fetch('/api/notify/subscribe', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ email: notifyEmail }),
+          });
+
+          // Check if response is JSON (API available)
+          const contentType = res.headers.get('content-type');
+          if (!contentType || !contentType.includes('application/json')) {
+            // API not available (local dev) - still show success for UX
+            console.log('API not available locally, email:', notifyEmail);
+            setEmailSubmitted(true);
+            setIsSubmittingEmail(false);
+            return;
+          }
+
+          if (res.ok) {
+            setEmailSubmitted(true);
+          } else {
+            alert('Failed to subscribe. Please try again.');
+          }
+        } catch (error) {
+          // Network error (local dev without API) - show success for better UX
+          console.log('Email subscription (local):', notifyEmail);
+          setEmailSubmitted(true);
+        } finally {
+          setIsSubmittingEmail(false);
+        }
       }
     };
 
@@ -1054,7 +1572,7 @@ export default function App() {
           
               <p>
                
-                <span className="text-white/50"> Your personalized recap: track your moments, insights, and stats.</span>
+                <span className="text-white/50">Your personalized recap: track your moments, insights, and stats.</span>
               </p>
             </div>
           </header>
@@ -1132,10 +1650,11 @@ export default function App() {
                       />
                       <button
                         type="submit"
-                        className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-purple-600 hover:bg-purple-500 rounded-xl text-white font-bold transition-colors text-sm"
+                        disabled={isSubmittingEmail}
+                        className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-purple-600 hover:bg-purple-500 disabled:bg-purple-600/50 rounded-xl text-white font-bold transition-colors text-sm"
                       >
-                        <Bell size={16} />
-                        Get Notified
+                        {isSubmittingEmail ? <Loader2 size={16} className="animate-spin" /> : <Bell size={16} />}
+                        {isSubmittingEmail ? 'Subscribing...' : 'Get Notified'}
                       </button>
                     </form>
                   ) : (
@@ -1206,6 +1725,43 @@ export default function App() {
     );
   };
 
+  // Loading screen when fetching a shared wrap
+  if (isLoading) {
+    return (
+      <div className="min-h-screen relative flex items-center justify-center">
+        <DynamicBackground moodId="twilight" />
+        <NoiseOverlay />
+        <div className="relative z-10 text-center">
+          <Loader2 size={48} className="text-white animate-spin mx-auto mb-4" />
+          <p className="text-white/70 text-lg font-medium">Loading wrap...</p>
+        </div>
+      </div>
+    );
+  }
+
+  // Error screen when wrap not found
+  if (loadError) {
+    return (
+      <div className="min-h-screen relative flex items-center justify-center">
+        <DynamicBackground moodId="twilight" />
+        <NoiseOverlay />
+        <div className="relative z-10 text-center max-w-md mx-auto px-6">
+          <div className="w-20 h-20 rounded-full bg-red-500/20 flex items-center justify-center mx-auto mb-6">
+            <X size={40} className="text-red-400" />
+          </div>
+          <h2 className="text-2xl font-bold text-white mb-3">Wrap Not Found</h2>
+          <p className="text-white/60 mb-8">{loadError}</p>
+          <button
+            onClick={() => { setLoadError(null); setStep('home'); window.history.pushState({}, '', '/'); }}
+            className="px-8 py-4 bg-white hover:bg-white/90 rounded-full text-black font-bold transition-all"
+          >
+            Go Home
+          </button>
+        </div>
+      </div>
+    );
+  }
+
   // Home page
   if (step === 'home') {
     return <HomePage />;
@@ -1231,11 +1787,14 @@ export default function App() {
         )}
 
         {showTransitionPicker !== null && (
-          <TransitionPickerModal 
-            statIndex={showTransitionPicker} 
-            onSelect={setTransitionBetweenStats} 
-            onClose={() => setShowTransitionPicker(null)} 
+          <TransitionPickerModal
+            statIndex={showTransitionPicker}
+            onSelect={setTransitionBetweenStats}
+            onClose={() => setShowTransitionPicker(null)}
           />
+        )}
+        {shareModalOpen && shareUrl && (
+          <ShareModal url={shareUrl} onClose={() => setShareModalOpen(false)} />
         )}
         {audioRef.current && (<button onClick={toggleMusic} className="fixed top-4 sm:top-6 right-4 sm:right-6 p-2 sm:p-3 bg-white/10 hover:bg-white/20 rounded-full text-white transition-colors backdrop-blur-sm border-2 border-white/20 z-50">{audioPlaying ? <Volume2 size={18} /> : <VolumeX size={18} />}</button>)}
         
@@ -1292,9 +1851,73 @@ export default function App() {
                         <BuilderTransitionButton afterStatIndex={index} isLast={index === stats.length - 1} />
                       </React.Fragment>
                     ))}
-                    <button onClick={addStat} className="w-full flex items-center justify-center gap-2 px-5 py-3 bg-white/10 hover:bg-white/20 rounded-xl text-white transition-colors border-2 border-white/20 font-bold mt-4"><Plus size={20} />Add Another Stat</button>
+                    <div className="flex gap-3 mt-4">
+                      <button onClick={addStat} className="flex-1 flex items-center justify-center gap-2 px-5 py-3 bg-white/10 hover:bg-white/20 rounded-xl text-white transition-colors border-2 border-white/20 font-bold"><Plus size={20} />Add Stat</button>
+                      <button onClick={addMoment} className="flex-1 flex items-center justify-center gap-2 px-5 py-3 bg-gradient-to-r from-purple-500/20 to-pink-500/20 hover:from-purple-500/30 hover:to-pink-500/30 rounded-xl text-white transition-colors border-2 border-purple-400/30 font-bold"><Camera size={20} />Add Moment</button>
+                    </div>
                   </div>
                 </div>
+
+                {/* Moments Section */}
+                {moments.length > 0 && (
+                  <div>
+                    <FieldLabel>
+                      <span className="flex items-center gap-2">
+                        <Camera size={18} className="text-purple-400" />
+                        Your Moments
+                      </span>
+                    </FieldLabel>
+                    <p className="text-white/60 text-sm mb-3">Photo-first memories that mattered enough to pause.</p>
+                    <div className="space-y-4">
+                      {moments.map((moment, index) => (
+                        <div key={index} className="relative p-4 pb-10 bg-gradient-to-br from-purple-500/10 to-pink-500/10 rounded-xl border border-purple-400/20 space-y-4">
+                          {/* Image upload area */}
+                          <div className="flex flex-col sm:flex-row gap-4">
+                            {moment.image ? (
+                              <div className="relative">
+                                <img src={moment.image} alt="Moment Preview" className="w-full sm:w-40 h-48 sm:h-52 object-cover rounded-xl border-2 border-white/20" />
+                                <button onClick={() => updateMoment(index, 'image', null)} className="absolute top-2 right-2 p-1.5 bg-red-500 hover:bg-red-600 rounded-full text-white transition-colors shadow-lg"><X size={14} /></button>
+                              </div>
+                            ) : (
+                              <label className="flex flex-col items-center justify-center w-full sm:w-40 h-48 sm:h-52 bg-white/5 hover:bg-white/10 rounded-xl text-white/50 transition-colors border-2 border-dashed border-purple-400/30 cursor-pointer">
+                                <Camera size={32} className="mb-2 text-purple-400/60" />
+                                <span className="text-sm font-medium">Add Photo</span>
+                                <span className="text-xs text-white/40 mt-1">(Required)</span>
+                                <input type="file" accept="image/*" onChange={(e) => handleMomentImageUpload(index, e.target.files[0])} className="hidden" />
+                              </label>
+                            )}
+                            <div className="flex-1 space-y-3">
+                              <input
+                                type="text"
+                                value={moment.label}
+                                onChange={(e) => updateMoment(index, 'label', e.target.value)}
+                                placeholder="A Moment Worth Remembering"
+                                className="w-full px-4 py-3 rounded-xl bg-white/10 border-2 border-white/20 text-white placeholder-white/50 focus:outline-none focus:ring-2 focus:ring-purple-400/50 backdrop-blur-sm font-medium text-sm sm:text-base"
+                              />
+                              {/* Glow color selector */}
+                              <div>
+                                <span className="text-white/60 text-xs uppercase tracking-wide mb-2 block">Frame Glow</span>
+                                <div className="flex gap-2 flex-wrap">
+                                  {momentGlowColors.map(gc => (
+                                    <button
+                                      key={gc.id}
+                                      onClick={() => updateMoment(index, 'glowColor', gc.id)}
+                                      className={`w-8 h-8 rounded-full border-2 transition-all ${moment.glowColor === gc.id ? 'border-white scale-110' : 'border-white/30 hover:border-white/60'}`}
+                                      style={{ background: gc.color, boxShadow: moment.glowColor === gc.id ? `0 0 15px ${gc.glow}` : 'none' }}
+                                      title={gc.name}
+                                    />
+                                  ))}
+                                </div>
+                              </div>
+                            </div>
+                          </div>
+                          {/* Delete button */}
+                          <button onClick={() => removeMoment(index)} className="absolute bottom-2 right-2 p-1.5 bg-red-500/20 hover:bg-red-500/40 rounded-lg text-white/70 hover:text-white transition-colors"><Trash2 size={14} /></button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
 
                 <div><FieldLabel>Add a Badge to your Wrap</FieldLabel><div className="space-y-4">{badges.map((badge, index) => (<div key={index} className="p-4 bg-white/5 rounded-xl border border-white/10 space-y-3"><div className="flex gap-3 items-start"><div className="relative"><button onClick={() => setShowEmojiPicker(showEmojiPicker === index ? null : index)} className="w-14 sm:w-16 h-14 sm:h-16 text-2xl sm:text-3xl rounded-xl bg-white/10 border-2 border-white/20 hover:bg-white/20 transition-colors flex items-center justify-center">{badge.emoji}</button>{showEmojiPicker === index && <EmojiPicker selectedEmoji={badge.emoji} onSelect={(emoji) => updateBadge(index, 'emoji', emoji)} onClose={() => setShowEmojiPicker(null)} />}</div><div className="flex-1 space-y-2"><input type="text" value={badge.title} onChange={(e) => updateBadge(index, 'title', e.target.value)} placeholder="Badge Title (e.g., Top Reader)" className="w-full px-4 sm:px-5 py-3 rounded-xl bg-white/10 border-2 border-white/20 text-white placeholder-white/50 focus:outline-none focus:ring-2 focus:ring-white/50 backdrop-blur-sm font-medium text-sm sm:text-base" /><input type="text" value={badge.subtext || ''} onChange={(e) => updateBadge(index, 'subtext', e.target.value)} placeholder="Subtext (Completed Reading Goal)" className="w-full px-4 py-2 rounded-xl bg-white/5 border border-white/10 text-white/80 placeholder-white/40 focus:outline-none focus:ring-2 focus:ring-white/30 backdrop-blur-sm text-sm" /></div><button onClick={() => removeBadge(index)} className="px-4 py-3 bg-red-500/20 hover:bg-red-500/40 rounded-xl text-white transition-colors border-2 border-red-500/40"><Trash2 size={20} /></button></div></div>))}<button onClick={addBadge} className="w-full flex items-center justify-center gap-2 px-5 py-3 bg-white/10 hover:bg-white/20 rounded-xl text-white transition-colors border-2 border-white/20 font-bold"><Plus size={20} />Add Badge</button></div></div>
                 <div title="Add a personal reflection that will appear as a special sparkle slide at the end"><FieldLabel><span className="flex items-center gap-2"><Sparkles size={18} className="text-white/70" />Reflection</span></FieldLabel><p className="text-white/60 text-sm mb-3">What's something you learned?</p><textarea value={reflection} onChange={(e) => setReflection(e.target.value)} placeholder="Share a meaningful insight or lesson..." className="w-full px-4 sm:px-5 py-3 sm:py-4 rounded-xl bg-white/10 border-2 border-white/20 text-white placeholder-white/50 focus:outline-none focus:ring-2 focus:ring-white/50 focus:border-transparent backdrop-blur-sm font-medium text-base sm:text-lg min-h-[100px] sm:min-h-[120px] resize-none" /></div>
@@ -1313,11 +1936,11 @@ export default function App() {
     <div className="min-h-screen relative overflow-hidden flex items-center justify-center p-3 sm:p-4" onTouchStart={onTouchStart} onTouchMove={onTouchMove} onTouchEnd={onTouchEnd}>
       <DynamicBackground moodId={selectedMood} /><NoiseOverlay />
       {showConfetti && <Confetti />}
-      {activeTransition === 'drumroll' && <DrumrollOverlay count={drumrollCount} />}
+      {activeTransition === 'drumroll' && <DrumrollOverlay count={drumrollCount} fading={drumrollFading} onSkip={nextSlide} />}
 
       <div className="relative z-10 w-full max-w-md mx-auto">
         <div className="fixed top-4 sm:top-6 right-4 sm:right-6 flex gap-2 sm:gap-3 z-50">
-          <button onClick={editWrapped} className="p-3 sm:p-4 bg-white/10 hover:bg-white/20 rounded-full text-white transition-colors backdrop-blur-sm border-2 border-white/20" title="Edit Wrapped"><Edit3 size={20} /></button>
+          {!isViewMode && <button onClick={editWrapped} className="p-3 sm:p-4 bg-white/10 hover:bg-white/20 rounded-full text-white transition-colors backdrop-blur-sm border-2 border-white/20" title="Edit Wrapped"><Edit3 size={20} /></button>}
           {audioRef.current && (<button onClick={toggleMusic} className="p-3 sm:p-4 bg-white/10 hover:bg-white/20 rounded-full text-white transition-colors backdrop-blur-sm border-2 border-white/20">{audioPlaying ? <Volume2 size={20} /> : <VolumeX size={20} />}</button>)}
         </div>
 
@@ -1331,12 +1954,12 @@ export default function App() {
           } else {
             nextSlide();
           }
-        }} className={`transition-all duration-500 ${getSlideAnimation()} relative cursor-pointer`} style={{ transformStyle: 'preserve-3d' }} key={currentSlide}>
+        }} className={`transition-all duration-500 ${getSlideAnimation()} relative cursor-pointer`} style={{ transformStyle: 'preserve-3d', transitionProperty: 'opacity', transitionDuration: '300ms', opacity: (activeTransition === 'drumroll' && !drumrollReveal) ? 0 : 1 }} key={currentSlide}>
             {currentSlideInfo.type === 'title' && (
               <div ref={coverRef} className="relative bg-black/40 backdrop-blur-2xl rounded-3xl text-center shadow-2xl border-2 border-white/30 min-h-[600px] sm:min-h-[700px] flex flex-col items-center justify-center overflow-hidden" onMouseMove={handleCoverMouseMove} onMouseLeave={() => setMousePosition({ x: 50, y: 50 })}>
                 <div className="absolute inset-0 pointer-events-none overflow-hidden rounded-3xl"><div className="absolute inset-0 animate-glass-wave" style={{ background: `radial-gradient(ellipse 60% 40% at 30% 30%, rgba(255,255,255,0.08) 0%, transparent 50%), radial-gradient(ellipse 50% 50% at 70% 70%, rgba(255,255,255,0.06) 0%, transparent 50%)` }} /><div className="absolute w-48 h-48 transition-all duration-300 ease-out" style={{ left: `${mousePosition.x}%`, top: `${mousePosition.y}%`, transform: 'translate(-50%, -50%)', background: 'radial-gradient(circle, rgba(255,255,255,0.15) 0%, rgba(255,255,255,0.05) 40%, transparent 70%)', filter: 'blur(20px)' }} /><div className="absolute inset-0 animate-caustics opacity-30" /></div>
                 {coverImage && (<div className="absolute inset-0 z-0"><img src={coverImage} alt="Cover" className="w-full h-full object-cover opacity-40" /><div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/40 to-black/60" /></div>)}
-                <div className="relative z-10 flex flex-col items-center justify-center px-6 sm:px-8"><div className="text-2xl sm:text-3xl font-black text-white/70 tracking-[0.3em] uppercase mb-6 sm:mb-8 animate-float-gentle">Wrapped</div><div className="mb-6 sm:mb-8"><RainbowTitle>{title}</RainbowTitle></div>{dateRange && <div className="text-lg sm:text-xl font-bold text-white/60 uppercase tracking-[0.2em]">{dateRange}</div>}<div className="mt-8 sm:mt-12 flex items-center gap-2 text-white/40 text-sm"><span className="uppercase tracking-wider">Tap to explore</span><ArrowRight size={16} /></div></div>
+                <div className="relative z-10 flex flex-col items-center justify-center px-6 sm:px-8"><div className="text-2xl sm:text-3xl font-black text-white/70 tracking-[0.3em] uppercase mb-4 sm:mb-6 animate-float-gentle mt-8 sm:mt-12">Wrapped</div><div className="mb-6 sm:mb-8"><RainbowTitle hasCoverImage={!!coverImage}>{title}</RainbowTitle></div>{dateRange && <div className="text-lg sm:text-xl font-bold text-white/60 uppercase tracking-[0.2em]">{dateRange}</div>}<div className="mt-8 sm:mt-12 flex items-center gap-2 text-white/40 text-sm"><span className="uppercase tracking-wider">Tap to explore</span><ArrowRight size={16} /></div></div>
                 <style>{`@keyframes glass-wave { 0%, 100% { transform: translateX(-2%) translateY(-2%); } 25% { transform: translateX(2%) translateY(1%); } 50% { transform: translateX(-1%) translateY(2%); } 75% { transform: translateX(1%) translateY(-1%); } } @keyframes caustics { 0%, 100% { background: radial-gradient(ellipse 80% 60% at 20% 40%, rgba(255,255,255,0.1) 0%, transparent 40%), radial-gradient(ellipse 60% 80% at 80% 60%, rgba(255,255,255,0.08) 0%, transparent 40%); } 33% { background: radial-gradient(ellipse 70% 50% at 60% 30%, rgba(255,255,255,0.12) 0%, transparent 40%), radial-gradient(ellipse 50% 70% at 40% 70%, rgba(255,255,255,0.06) 0%, transparent 40%); } 66% { background: radial-gradient(ellipse 90% 40% at 40% 60%, rgba(255,255,255,0.08) 0%, transparent 40%), radial-gradient(ellipse 40% 90% at 70% 40%, rgba(255,255,255,0.1) 0%, transparent 40%); } } @keyframes float-gentle { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-5px); } } .animate-glass-wave { animation: glass-wave 8s ease-in-out infinite; } .animate-caustics { animation: caustics 6s ease-in-out infinite; } .animate-float-gentle { animation: float-gentle 4s ease-in-out infinite; }`}</style>
               </div>
             )}
@@ -1345,23 +1968,43 @@ export default function App() {
               const stat = validStats[currentSlideInfo.index]; const isLongText = stat.value.length > 50 || stat.value.includes(':') || stat.value.includes(','); const isFirstView = stat.isHighlight && !viewedHighlights.has(currentSlideInfo.index);
               // Don't show text reveal animations if impact already played for this slide
               const impactAlreadyPlayed = impactPlayedSlides.has(currentSlide);
-              const showTextReveal = !stat.isHighlight && activeTransition !== 'impact' && activeTransition !== 'drumroll' && !impactAlreadyPlayed;
-              // Cycle through 3 animation themes for variety
-              const textTheme = currentSlideInfo.index % 3;
-              const labelAnim = showTextReveal ? (textTheme === 0 ? 'animate-text-fade-in' : textTheme === 1 ? 'animate-text-slide-left' : 'animate-text-zoom-in') : '';
-              const valueAnim = showTextReveal ? (textTheme === 0 ? 'animate-text-reveal' : textTheme === 1 ? 'animate-text-slide-right' : 'animate-text-zoom-reveal') : '';
-              const noteAnim = showTextReveal ? (textTheme === 0 ? 'animate-text-fade-in-late' : textTheme === 1 ? 'animate-text-slide-left-late' : 'animate-text-zoom-late') : '';
+              // Determine if this is a drumroll slide that just revealed
+              const isDrumrollSlide = drumrollReveal && activeTransition === 'drumroll';
+              // Regular text reveal for default transition slides (all stats including highlights)
+              // Always show text animations on non-transition slides (removed textPlayedSlides check)
+              const showTextReveal = activeTransition !== 'impact' && activeTransition !== 'drumroll' && !impactAlreadyPlayed;
+              // Cycle through 3 animation themes for variety on regular slides
+              const textTheme = slideTextTheme[currentSlide] ?? currentSlideInfo.index % 3;
+              // Highlight slides get their own special elevated animation
+              const isHighlightWithDefaultTransition = stat.isHighlight && (!transitions[currentSlide] || (transitions[currentSlide]?.type || transitions[currentSlide]) === 'default');
+              // Regular slide animations (randomized) - for non-highlight slides
+              const labelAnim = showTextReveal && !isHighlightWithDefaultTransition ? (textTheme === 0 ? 'animate-text-fade-in' : textTheme === 1 ? 'animate-text-slide-left' : 'animate-text-zoom-in') : '';
+              const valueAnim = showTextReveal && !isHighlightWithDefaultTransition ? (textTheme === 0 ? 'animate-text-reveal' : textTheme === 1 ? 'animate-text-slide-right' : 'animate-text-zoom-reveal') : '';
+              const noteAnim = showTextReveal && !isHighlightWithDefaultTransition ? (textTheme === 0 ? 'animate-text-fade-in-late' : textTheme === 1 ? 'animate-text-slide-left-late' : 'animate-text-zoom-late') : '';
+              // Special highlight animations - elevated, intentional, more expressive
+              const highlightLabelAnim = showTextReveal && isHighlightWithDefaultTransition ? 'animate-highlight-label' : '';
+              const highlightValueAnim = showTextReveal && isHighlightWithDefaultTransition ? 'animate-highlight-value' : '';
+              const highlightNoteAnim = showTextReveal && isHighlightWithDefaultTransition ? 'animate-highlight-note' : '';
+              // Drumroll uses a consistent zoom-in reveal animation
+              const drumrollLabelAnim = isDrumrollSlide ? 'animate-drumroll-text-label' : '';
+              const drumrollValueAnim = isDrumrollSlide ? 'animate-drumroll-text-value' : '';
+              const drumrollNoteAnim = isDrumrollSlide ? 'animate-drumroll-text-note' : '';
               return (
                 <div className={`bg-black/40 backdrop-blur-2xl rounded-3xl p-6 sm:p-8 text-center shadow-2xl border-2 min-h-[600px] sm:min-h-[650px] flex flex-col justify-between relative ${stat.isHighlight ? 'border-yellow-400/60' : 'border-white/30'} ${activeTransition === 'drumroll' ? 'drumroll-glow' : ''} ${activeTransition === 'impact' ? 'animate-impact-slam' : ''}`} style={stat.isHighlight && !isFirstView ? { boxShadow: '0 0 60px rgba(250, 204, 21, 0.4), 0 0 100px rgba(250, 204, 21, 0.2), inset 0 0 60px rgba(250, 204, 21, 0.1)', animation: 'glow-breathe 3s ease-in-out infinite' } : {}}>
                   {activeTransition === 'impact' && <ImpactDots />}
                   {showDrumrollGlitter && <DrumrollGlitter />}
-                  {stat.isHighlight && <HighlightGlowRing isFirstView={isFirstView} />}{stat.isHighlight && <FallingStars />}{!stat.isHighlight && !isLongText && !stat.image && getDecorativeShapes(currentSlideInfo.index)}
-                  <div className={`flex-1 flex flex-col justify-center space-y-4 sm:space-y-6 relative z-10 ${activeTransition === 'impact' ? 'animate-impact-text' : ''}`}>{stat.image && <div className="mb-4"><img src={stat.image} alt={stat.label} className="w-full max-w-sm mx-auto h-48 sm:h-64 object-cover rounded-2xl shadow-2xl border-2 border-white/20" /></div>}<div className={`text-white/70 text-lg sm:text-2xl font-bold uppercase tracking-wider ${labelAnim}`}>{stat.label}</div><div className={`text-white ${valueAnim}`}>{formatValue(stat.value)}</div>{stat.note && <div className={`text-white/50 text-base sm:text-lg italic mt-4 max-w-md mx-auto px-2 ${noteAnim}`}>({stat.note})</div>}</div>
+                  {stat.isHighlight && <FallingStars />}
+                  {!stat.isHighlight && !isLongText && !stat.image && getDecorativeShapes(currentSlideInfo.index)}
+                  <div className={`flex-1 flex flex-col justify-center space-y-4 sm:space-y-6 relative z-10 ${activeTransition === 'impact' ? 'animate-impact-text' : ''}`}>{stat.image && <div className="mb-4"><img src={stat.image} alt={stat.label} className="w-full max-w-sm mx-auto h-48 sm:h-64 object-cover rounded-2xl shadow-2xl border-2 border-white/20" /></div>}<div className={`text-white/70 text-lg sm:text-2xl font-bold uppercase tracking-wider ${labelAnim} ${highlightLabelAnim} ${drumrollLabelAnim}`}>{stat.label}</div><div className={`text-white ${valueAnim} ${highlightValueAnim} ${drumrollValueAnim}`}>{formatValue(stat.value)}</div>{stat.note && <div className={`text-white/50 text-base sm:text-lg italic mt-4 max-w-md mx-auto px-2 ${noteAnim} ${highlightNoteAnim} ${drumrollNoteAnim}`}>({stat.note})</div>}</div>
                   <div className="text-white/30 font-black text-sm uppercase tracking-widest mt-4 relative z-10">{dateRange || 'Wrapped'}</div>
                   <style>{`@keyframes glow-breathe { 0%, 100% { box-shadow: 0 0 60px rgba(250, 204, 21, 0.4), 0 0 100px rgba(250, 204, 21, 0.2), inset 0 0 60px rgba(250, 204, 21, 0.1); } 50% { box-shadow: 0 0 80px rgba(250, 204, 21, 0.6), 0 0 120px rgba(250, 204, 21, 0.3), inset 0 0 80px rgba(250, 204, 21, 0.15); } }`}</style>
                 </div>
               );
             })()}
+
+            {currentSlideInfo.type === 'moment' && validMoments[currentSlideInfo.index] && (
+              <MomentSlide moment={validMoments[currentSlideInfo.index]} isFirstView={true} dateRange={dateRange} />
+            )}
 
             {currentSlideInfo.type === 'badge' && validBadges[currentSlideInfo.index] && (
               <BadgeSlide badge={validBadges[currentSlideInfo.index]} isFirstView={!viewedBadges.has(currentSlideInfo.index)} dateRange={dateRange} />
@@ -1381,19 +2024,70 @@ export default function App() {
                   </div>
                 )}
                 <div className="text-center mb-6 sm:mb-8"><h2 className="text-3xl sm:text-5xl font-black text-white mb-3 sm:mb-4 tracking-tight">{title}</h2>{dateRange && <div className="text-lg sm:text-xl text-white/70 uppercase tracking-wide">{dateRange}</div>}</div>
-                <div className="space-y-3 sm:space-y-4 max-h-[300px] sm:max-h-[350px] overflow-y-auto pr-2 custom-scrollbar">{validStats.map((stat, index) => (<div key={index} onClick={(e) => { e.stopPropagation(); navigateToSlideFromSummary(index + 1); }} className={`bg-white/10 backdrop-blur-sm rounded-xl p-3 sm:p-4 border flex items-center gap-3 sm:gap-4 cursor-pointer hover:bg-white/20 transition-all hover:scale-[1.02] ${stat.isHighlight ? 'border-yellow-400/40' : 'border-white/20'}`}>{stat.image && <img src={stat.image} alt={stat.label} className="w-12 sm:w-16 h-12 sm:h-16 object-cover rounded-lg" />}<div className="flex-1 text-left min-w-0"><div className="text-white/70 text-xs sm:text-sm font-semibold uppercase tracking-wide flex items-center gap-2">{stat.isHighlight && <Star size={12} className="text-yellow-300 fill-yellow-300 flex-shrink-0" />}<span className="truncate">{stat.label}</span></div><div className="text-white text-base sm:text-lg font-bold truncate">{stat.value.length > 40 ? stat.value.substring(0, 40) + '...' : stat.value}</div>{stat.note && <div className="text-white/50 text-xs sm:text-sm italic mt-1 truncate">{stat.note.length > 50 ? stat.note.substring(0, 50) + '...' : stat.note}</div>}</div><ChevronRight size={16} className="text-white/40 flex-shrink-0" /></div>))}{validBadges.length > 0 && (<div className="pt-4 border-t border-white/20"><div className="text-white/50 text-xs uppercase tracking-wider mb-3">Badges Earned</div><div className="flex flex-wrap gap-2 sm:gap-3">{validBadges.map((badge, index) => (<div key={index} onClick={(e) => { e.stopPropagation(); navigateToSlideFromSummary(validStats.length + 1 + index); }} className="bg-white/10 rounded-xl px-3 sm:px-4 py-2 flex items-center gap-2 border border-white/20 cursor-pointer hover:bg-white/20 transition-all"><span className="text-xl sm:text-2xl">{badge.emoji}</span><span className="text-white font-semibold text-sm sm:text-base">{badge.title}</span></div>))}</div></div>)}{hasReflection && (<div onClick={(e) => { e.stopPropagation(); navigateToSlideFromSummary(validStats.length + validBadges.length + 1); }} className="pt-4 border-t border-white/20 cursor-pointer hover:bg-white/5 rounded-lg transition-all -mx-2 px-2 py-2"><div className="text-white/50 text-xs uppercase tracking-wider mb-3 flex items-center gap-2"><Sparkles size={12} />Reflection</div><div className="text-white/80 italic text-sm sm:text-base">"{reflection.length > 100 ? reflection.substring(0, 100) + '...' : reflection}"</div></div>)}</div>
+                <div className="space-y-3 sm:space-y-4 max-h-[300px] sm:max-h-[350px] overflow-y-auto pr-2 custom-scrollbar">
+                  {/* Content (Stats and Moments interleaved) */}
+                  {validContentOrder.map((item, contentIdx) => {
+                    if (item.type === 'stat') {
+                      const stat = stats[item.index];
+                      return (
+                        <div key={`content-${contentIdx}`} onClick={(e) => { e.stopPropagation(); navigateToSlideFromSummary(contentIdx + 1); }} className={`bg-white/10 backdrop-blur-sm rounded-xl p-3 sm:p-4 border flex items-center gap-3 sm:gap-4 cursor-pointer hover:bg-white/20 transition-all hover:scale-[1.02] ${stat.isHighlight ? 'border-yellow-400/40' : 'border-white/20'}`}>
+                          {stat.image && <img src={stat.image} alt={stat.label} className="w-12 sm:w-16 h-12 sm:h-16 object-cover rounded-lg" />}
+                          <div className="flex-1 text-left min-w-0">
+                            <div className="text-white/70 text-xs sm:text-sm font-semibold uppercase tracking-wide flex items-center gap-2">{stat.isHighlight && <Star size={12} className="text-yellow-300 fill-yellow-300 flex-shrink-0" />}<span className="truncate">{stat.label}</span></div>
+                            <div className="text-white text-base sm:text-lg font-bold truncate">{stat.value.length > 40 ? stat.value.substring(0, 40) + '...' : stat.value}</div>
+                            {stat.note && <div className="text-white/50 text-xs sm:text-sm italic mt-1 truncate">{stat.note.length > 50 ? stat.note.substring(0, 50) + '...' : stat.note}</div>}
+                          </div>
+                          <ChevronRight size={16} className="text-white/40 flex-shrink-0" />
+                        </div>
+                      );
+                    } else {
+                      const moment = moments[item.index];
+                      const glowConfig = momentGlowColors.find(g => g.id === moment.glowColor) || momentGlowColors[0];
+                      return (
+                        <div key={`content-${contentIdx}`} onClick={(e) => { e.stopPropagation(); navigateToSlideFromSummary(contentIdx + 1); }} className="bg-white/10 backdrop-blur-sm rounded-xl p-3 sm:p-4 border flex items-center gap-3 sm:gap-4 cursor-pointer hover:bg-white/20 transition-all hover:scale-[1.02]" style={{ borderColor: `${glowConfig.color}40` }}>
+                          <img src={moment.image} alt={moment.label} className="w-12 sm:w-16 h-12 sm:h-16 object-cover rounded-lg" style={{ boxShadow: `0 0 10px ${glowConfig.glow}` }} />
+                          <div className="flex-1 text-left min-w-0">
+                            <div className="text-white/70 text-xs sm:text-sm font-semibold uppercase tracking-wide flex items-center gap-2"><Camera size={12} style={{ color: glowConfig.color }} /><span className="truncate">{moment.label}</span></div>
+                          </div>
+                          <ChevronRight size={16} className="text-white/40 flex-shrink-0" />
+                        </div>
+                      );
+                    }
+                  })}
+                  {/* Badges */}
+                  {validBadges.length > 0 && (
+                    <div className="pt-4 border-t border-white/20">
+                      <div className="text-white/50 text-xs uppercase tracking-wider mb-3">Badges Earned</div>
+                      <div className="flex flex-wrap gap-2 sm:gap-3">
+                        {validBadges.map((badge, index) => (
+                          <div key={`badge-${index}`} onClick={(e) => { e.stopPropagation(); navigateToSlideFromSummary(validContentOrder.length + 1 + index); }} className="bg-white/10 rounded-xl px-3 sm:px-4 py-2 flex items-center gap-2 border border-white/20 cursor-pointer hover:bg-white/20 transition-all">
+                            <span className="text-xl sm:text-2xl">{badge.emoji}</span>
+                            <span className="text-white font-semibold text-sm sm:text-base">{badge.title}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  {/* Reflection */}
+                  {hasReflection && (
+                    <div onClick={(e) => { e.stopPropagation(); navigateToSlideFromSummary(validContentOrder.length + validBadges.length + 1); }} className="pt-4 border-t border-white/20 cursor-pointer hover:bg-white/5 rounded-lg transition-all -mx-2 px-2 py-2">
+                      <div className="text-white/50 text-xs uppercase tracking-wider mb-3 flex items-center gap-2"><Sparkles size={12} />Reflection</div>
+                      <div className="text-white/80 italic text-sm sm:text-base">"{reflection.length > 100 ? reflection.substring(0, 100) + '...' : reflection}"</div>
+                    </div>
+                  )}
+                </div>
                 <div className="mt-6 sm:mt-8 text-center"><div className="text-white/50 text-sm uppercase tracking-widest">That's a wrap!</div></div>
               </div>
             )}
           </div>
 
         <div className="flex justify-center sm:justify-between items-center mt-6 sm:mt-8">
-          <button onClick={(e) => { e.stopPropagation(); prevSlide(); }} disabled={currentSlide === 0 || isAnimating || activeTransition === 'drumroll'} className="hidden sm:flex p-3 sm:p-4 bg-white/10 hover:bg-white/20 disabled:bg-white/5 disabled:cursor-not-allowed rounded-full text-white transition-colors backdrop-blur-sm border-2 border-white/20"><ArrowLeft size={24} /></button>
+          <button onClick={(e) => { e.stopPropagation(); prevSlide(); }} disabled={currentSlide === 0 || (isAnimating && activeTransition !== 'drumroll')} className="hidden sm:flex p-3 sm:p-4 bg-white/10 hover:bg-white/20 disabled:bg-white/5 disabled:cursor-not-allowed rounded-full text-white transition-colors backdrop-blur-sm border-2 border-white/20"><ArrowLeft size={24} /></button>
           <ProgressDots current={currentSlide} total={totalSlides} />
-          {currentSlide < totalSlides - 1 ? (<button onClick={(e) => { e.stopPropagation(); nextSlide(); }} disabled={isAnimating || activeTransition === 'drumroll'} className="hidden sm:flex p-3 sm:p-4 bg-white/10 hover:bg-white/20 disabled:bg-white/5 rounded-full text-white transition-colors backdrop-blur-sm border-2 border-white/20"><ArrowRight size={24} /></button>) : (<button onClick={(e) => { e.stopPropagation(); shareWrapped(); }} className="flex items-center gap-2 sm:gap-3 px-6 sm:px-8 py-3 sm:py-4 bg-white hover:bg-white/90 rounded-full text-black font-black transition-all shadow-xl hover:shadow-2xl hover:scale-105 uppercase tracking-wide text-sm sm:text-base"><Share2 size={18} />Share</button>)}
+          {currentSlide < totalSlides - 1 ? (<button onClick={(e) => { e.stopPropagation(); nextSlide(); }} disabled={(isAnimating && activeTransition !== 'drumroll')} className="hidden sm:flex p-3 sm:p-4 bg-white/10 hover:bg-white/20 disabled:bg-white/5 rounded-full text-white transition-colors backdrop-blur-sm border-2 border-white/20"><ArrowRight size={24} /></button>) : (<button onClick={(e) => { e.stopPropagation(); shareWrapped(); }} disabled={isSaving} className="flex items-center gap-2 sm:gap-3 px-6 sm:px-8 py-3 sm:py-4 bg-white hover:bg-white/90 disabled:bg-white/70 rounded-full text-black font-black transition-all shadow-xl hover:shadow-2xl hover:scale-105 disabled:scale-100 uppercase tracking-wide text-sm sm:text-base ml-auto sm:ml-0">{isSaving ? <Loader2 size={18} className="animate-spin" /> : <Share2 size={18} />}{isSaving ? 'Saving...' : 'Share'}</button>)}
         </div>
 
-        {currentSlideInfo.type === 'summary' && (<button onClick={resetWrapped} className="w-full mt-4 sm:mt-6 px-6 py-3 sm:py-4 bg-white/10 hover:bg-white/20 rounded-xl text-white transition-colors backdrop-blur-sm border-2 border-white/20 font-bold uppercase tracking-wide text-sm sm:text-base">Create New Wrapped</button>)}
+        {currentSlideInfo.type === 'summary' && (<button onClick={resetWrapped} className="w-full mt-4 sm:mt-6 px-6 py-3 sm:py-4 bg-white/10 hover:bg-white/20 rounded-xl text-white transition-colors backdrop-blur-sm border-2 border-white/20 font-bold uppercase tracking-wide text-sm sm:text-base">{isViewMode ? 'Create Your Own Wrapped' : 'Create New Wrapped'}</button>)}
 
         {/* Back to Summary button when navigated from summary */}
         {navigatedFromSummary && currentSlideInfo.type !== 'summary' && (
@@ -1521,7 +2215,36 @@ export default function App() {
         .animate-text-zoom-in { animation: text-zoom-in 0.8s ease-out forwards; }
         .animate-text-zoom-reveal { animation: text-zoom-reveal 1.2s ease-out forwards; }
         .animate-text-zoom-late { animation: text-zoom-late 1.0s ease-out forwards; }
+        /* Highlight-specific animations - elevated, golden, expressive */
+        @keyframes highlight-label {
+          0% { opacity: 0; transform: translateY(-30px) scale(0.9); filter: blur(8px); }
+          40% { opacity: 0.6; transform: translateY(5px) scale(1.02); filter: blur(2px); }
+          70% { opacity: 0.9; transform: translateY(-2px) scale(0.99); filter: blur(0); }
+          100% { opacity: 1; transform: translateY(0) scale(1); filter: blur(0); }
+        }
+        @keyframes highlight-value {
+          0% { opacity: 0; transform: scale(0.3) rotate(-8deg); filter: blur(12px) brightness(1.5); }
+          30% { opacity: 0; transform: scale(0.5) rotate(-4deg); filter: blur(8px) brightness(1.3); }
+          60% { opacity: 0.8; transform: scale(1.08) rotate(2deg); filter: blur(0) brightness(1.1); }
+          80% { opacity: 1; transform: scale(0.97) rotate(-1deg); filter: blur(0) brightness(1); }
+          100% { opacity: 1; transform: scale(1) rotate(0deg); filter: blur(0) brightness(1); }
+        }
+        @keyframes highlight-note {
+          0%, 60% { opacity: 0; transform: translateY(20px) scale(0.95); }
+          80% { opacity: 0.8; transform: translateY(-3px) scale(1.01); }
+          100% { opacity: 1; transform: translateY(0) scale(1); }
+        }
+        .animate-highlight-label { animation: highlight-label 0.9s cubic-bezier(0.34, 1.56, 0.64, 1) forwards; }
+        .animate-highlight-value { animation: highlight-value 1.4s cubic-bezier(0.22, 1, 0.36, 1) forwards; }
+        .animate-highlight-note { animation: highlight-note 1.1s ease-out forwards; }
         .drumroll-glow { animation: drumroll-glow 2s ease-in-out infinite; }
+        /* Drumroll text reveal animations - consistent scale-up effect */
+        @keyframes drumroll-text-label { 0% { opacity: 0; transform: scale(0.8); } 100% { opacity: 1; transform: scale(1); } }
+        @keyframes drumroll-text-value { 0% { opacity: 0; transform: scale(0.6); } 100% { opacity: 1; transform: scale(1); } }
+        @keyframes drumroll-text-note { 0% { opacity: 0; transform: scale(0.9); } 100% { opacity: 1; transform: scale(1); } }
+        .animate-drumroll-text-label { animation: drumroll-text-label 0.6s ease-out forwards; animation-delay: 0.1s; opacity: 0; }
+        .animate-drumroll-text-value { animation: drumroll-text-value 0.8s cubic-bezier(0.34, 1.56, 0.64, 1) forwards; animation-delay: 0.3s; opacity: 0; }
+        .animate-drumroll-text-note { animation: drumroll-text-note 0.6s ease-out forwards; animation-delay: 0.5s; opacity: 0; }
         .animate-logo-shine { animation: logo-shine 3s ease-in-out infinite; animation-delay: 2s; }
         .animate-blob1 { animation: blob1 12s ease-in-out infinite; }
         .animate-blob2 { animation: blob2 15s ease-in-out infinite; }
