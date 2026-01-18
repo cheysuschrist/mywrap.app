@@ -256,7 +256,40 @@ export default function App() {
 
   const unsupportedFormats = ['image/heic', 'image/heif'];
 
-  const handleImageUpload = (index, file) => {
+  // Compress image to reduce payload size for API
+  const compressImage = useCallback((file, maxWidth = 1200, quality = 0.8) => {
+    return new Promise((resolve) => {
+      const reader = new FileReader();
+      reader.onload = (e) => {
+        const img = new Image();
+        img.onload = () => {
+          const canvas = document.createElement('canvas');
+          let width = img.width;
+          let height = img.height;
+
+          // Scale down if larger than maxWidth
+          if (width > maxWidth) {
+            height = (height * maxWidth) / width;
+            width = maxWidth;
+          }
+
+          canvas.width = width;
+          canvas.height = height;
+          const ctx = canvas.getContext('2d');
+          ctx.drawImage(img, 0, 0, width, height);
+
+          // Convert to JPEG for better compression (unless it's a PNG with transparency)
+          const outputType = file.type === 'image/png' ? 'image/png' : 'image/jpeg';
+          const outputQuality = file.type === 'image/png' ? 0.9 : quality;
+          resolve(canvas.toDataURL(outputType, outputQuality));
+        };
+        img.src = e.target.result;
+      };
+      reader.readAsDataURL(file);
+    });
+  }, []);
+
+  const handleImageUpload = async (index, file) => {
     if (!file) return;
 
     const fileExtension = file.name.toLowerCase().split('.').pop();
@@ -269,16 +302,15 @@ export default function App() {
     }
 
     if (file.type.startsWith('image/') || ['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg'].includes(fileExtension)) {
-      const reader = new FileReader();
-      reader.onload = (e) => { const newStats = [...stats]; newStats[index].image = e.target.result; setStats(newStats); };
-      reader.readAsDataURL(file);
+      const compressed = await compressImage(file);
+      const newStats = [...stats]; newStats[index].image = compressed; setStats(newStats);
     } else {
       setImageFormatError('Unsupported image format. Please use JPEG, PNG, GIF, or WebP.');
       setTimeout(() => setImageFormatError(null), 5000);
     }
   };
 
-  const handleCoverImageUpload = (file) => {
+  const handleCoverImageUpload = async (file) => {
     if (!file) return;
 
     const fileExtension = file.name.toLowerCase().split('.').pop();
@@ -291,9 +323,8 @@ export default function App() {
     }
 
     if (file.type.startsWith('image/') || ['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg'].includes(fileExtension)) {
-      const reader = new FileReader();
-      reader.onload = (e) => setCoverImage(e.target.result);
-      reader.readAsDataURL(file);
+      const compressed = await compressImage(file);
+      setCoverImage(compressed);
     } else {
       setImageFormatError('Unsupported image format. Please use JPEG, PNG, GIF, or WebP.');
       setTimeout(() => setImageFormatError(null), 5000);
@@ -303,7 +334,7 @@ export default function App() {
   const removeImage = (index) => { const newStats = [...stats]; newStats[index].image = null; setStats(newStats); };
 
   // Moment image upload
-  const handleMomentImageUpload = (index, file) => {
+  const handleMomentImageUpload = async (index, file) => {
     if (!file) return;
     const fileExtension = file.name.toLowerCase().split('.').pop();
     const isHeic = fileExtension === 'heic' || fileExtension === 'heif' || unsupportedFormats.includes(file.type);
@@ -313,9 +344,8 @@ export default function App() {
       return;
     }
     if (file.type.startsWith('image/') || ['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg'].includes(fileExtension)) {
-      const reader = new FileReader();
-      reader.onload = (e) => { const newMoments = [...moments]; newMoments[index].image = e.target.result; setMoments(newMoments); };
-      reader.readAsDataURL(file);
+      const compressed = await compressImage(file);
+      const newMoments = [...moments]; newMoments[index].image = compressed; setMoments(newMoments);
     } else {
       setImageFormatError('Unsupported image format. Please use JPEG, PNG, GIF, or WebP.');
       setTimeout(() => setImageFormatError(null), 5000);
@@ -1893,9 +1923,15 @@ export default function App() {
     );
   };
 
-  const Confetti = () => {
+  const Confetti = ({ onComplete }) => {
     const [particles, setParticles] = useState([]);
-    useEffect(() => { const colors = ['#ff0080', '#ff8c00', '#ffef00', '#00ff88', '#00cfff', '#8000ff', '#ff006e', '#fb5607']; setParticles(Array.from({ length: 150 }, (_, i) => ({ id: i, x: Math.random() * 100, delay: Math.random() * 2, duration: 2 + Math.random() * 2, color: colors[Math.floor(Math.random() * colors.length)], size: 8 + Math.random() * 12, rotation: Math.random() * 360, type: Math.random() > 0.5 ? 'square' : 'circle' }))); }, []);
+    useEffect(() => {
+      const colors = ['#ff0080', '#ff8c00', '#ffef00', '#00ff88', '#00cfff', '#8000ff', '#ff006e', '#fb5607'];
+      setParticles(Array.from({ length: 150 }, (_, i) => ({ id: i, x: Math.random() * 100, delay: Math.random() * 2, duration: 2 + Math.random() * 2, color: colors[Math.floor(Math.random() * colors.length)], size: 8 + Math.random() * 12, rotation: Math.random() * 360, type: Math.random() > 0.5 ? 'square' : 'circle' })));
+      // Auto-hide after animations complete (max delay 2s + max duration 4s + buffer)
+      const timer = setTimeout(() => { if (onComplete) onComplete(); }, 6500);
+      return () => clearTimeout(timer);
+    }, [onComplete]);
     return (<div className="fixed inset-0 pointer-events-none z-50 overflow-hidden">{particles.map(p => (<div key={p.id} className="absolute animate-confetti" style={{ left: `${p.x}%`, top: '-20px', animationDelay: `${p.delay}s`, animationDuration: `${p.duration}s` }}><div style={{ width: p.size, height: p.size, backgroundColor: p.color, borderRadius: p.type === 'circle' ? '50%' : '2px', transform: `rotate(${p.rotation}deg)` }} /></div>))}<style>{`@keyframes confetti { 0% { transform: translateY(0) rotate(0deg) scale(1); opacity: 1; } 100% { transform: translateY(100vh) rotate(720deg) scale(0.5); opacity: 0; } } .animate-confetti { animation: confetti ease-out forwards; }`}</style></div>);
   };
 
@@ -3140,7 +3176,7 @@ export default function App() {
   return (
     <div className="min-h-screen relative overflow-hidden flex items-center justify-center p-3 sm:p-4" style={safariColorBoostStyle} onTouchStart={onTouchStart} onTouchMove={onTouchMove} onTouchEnd={onTouchEnd}>
       <DynamicBackground moodId={selectedMood} /><NoiseOverlay />
-      {showConfetti && <Confetti />}
+      {showConfetti && <Confetti onComplete={() => setShowConfetti(false)} />}
       {activeTransition === 'drumroll' && <DrumrollOverlay count={drumrollCount} fading={drumrollFading} onSkip={nextSlide} />}
 
       <div className="relative z-10 w-full max-w-md mx-auto">
