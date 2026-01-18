@@ -3,10 +3,10 @@ import { put } from '@vercel/blob';
 import { nanoid } from 'nanoid';
 
 // Create KV client - supports both standard and prefixed env var names
-const kv = createClient({
-  url: process.env.KV_REST_API_URL || process.env.mywrap_KV_REST_API_URL,
-  token: process.env.KV_REST_API_TOKEN || process.env.mywrap_KV_REST_API_TOKEN,
-});
+const kvUrl = process.env.KV_REST_API_URL || process.env.mywrap_KV_REST_API_URL;
+const kvToken = process.env.KV_REST_API_TOKEN || process.env.mywrap_KV_REST_API_TOKEN;
+
+const kv = kvUrl && kvToken ? createClient({ url: kvUrl, token: kvToken }) : null;
 
 export const config = {
   api: {
@@ -56,6 +56,18 @@ export default async function handler(req, res) {
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
+  console.log('[API /wraps/create] Starting wrap creation');
+  console.log('[API /wraps/create] KV configured:', !!kv);
+  console.log('[API /wraps/create] Blob token present:', !!process.env.BLOB_READ_WRITE_TOKEN);
+
+  if (!kv) {
+    console.error('[API /wraps/create] Error: KV not configured - missing env vars');
+    return res.status(503).json({
+      error: 'Storage not configured',
+      message: 'Please ensure KV_REST_API_URL and KV_REST_API_TOKEN are set in your Vercel environment variables.'
+    });
+  }
+
   try {
     const {
       title,
@@ -71,8 +83,11 @@ export default async function handler(req, res) {
       transitions,
     } = req.body;
 
+    console.log('[API /wraps/create] Received wrap data:', { title, dateRange, statsCount: stats?.length, momentsCount: moments?.length });
+
     // Validate required fields
     if (!title) {
+      console.log('[API /wraps/create] Error: Missing title');
       return res.status(400).json({ error: 'Title is required' });
     }
 
@@ -125,7 +140,9 @@ export default async function handler(req, res) {
     };
 
     // Store with 1 year TTL (in seconds)
+    console.log('[API /wraps/create] Saving to KV with id:', id);
     await kv.set(`wrap:${id}`, wrapData, { ex: 60 * 60 * 24 * 365 });
+    console.log('[API /wraps/create] Wrap saved successfully');
 
     // Build the shareable URL
     const baseUrl = process.env.VERCEL_URL
@@ -133,6 +150,7 @@ export default async function handler(req, res) {
       : process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000';
 
     const shareUrl = `${baseUrl}/w/${id}`;
+    console.log('[API /wraps/create] Generated share URL:', shareUrl);
 
     return res.status(200).json({
       success: true,
@@ -140,10 +158,10 @@ export default async function handler(req, res) {
       url: shareUrl,
     });
   } catch (error) {
-    console.error('Error creating wrap:', error);
+    console.error('[API /wraps/create] Error:', error.message, error.stack);
     return res.status(500).json({
       error: 'Failed to save wrap',
-      details: process.env.NODE_ENV === 'development' ? error.message : undefined,
+      message: error.message,
     });
   }
 }

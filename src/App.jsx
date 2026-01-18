@@ -47,9 +47,6 @@ export default function App() {
   const [textPlayedSlides, setTextPlayedSlides] = useState(new Set());
   const [slideTextTheme, setSlideTextTheme] = useState({});
   
-  // Homepage state
-  const [notifyEmail, setNotifyEmail] = useState('');
-  const [emailSubmitted, setEmailSubmitted] = useState(false);
 
   // Shareable wraps state
   const [wrapId, setWrapId] = useState(null);
@@ -427,27 +424,39 @@ export default function App() {
   const loadWrap = useCallback(async (id) => {
     setIsLoading(true);
     setLoadError(null);
+    console.log('[loadWrap] Fetching wrap:', id);
+
     try {
       const res = await fetch(`/api/wraps/${id}`);
+      console.log('[loadWrap] Response status:', res.status);
 
-      // Check if response is JSON (API might not be available locally)
+      // Check if response is JSON
       const contentType = res.headers.get('content-type');
+      console.log('[loadWrap] Content-Type:', contentType);
+
       if (!contentType || !contentType.includes('application/json')) {
-        setLoadError('API not available. Please deploy to Vercel or run with `vercel dev`.');
+        // Try to get error text for debugging
+        const text = await res.text().catch(() => '');
+        console.error('[loadWrap] Non-JSON response:', text.substring(0, 200));
+        setLoadError('Unable to connect to the server. Please try again later.');
         setIsLoading(false);
         return;
       }
+
+      const data = await res.json();
+      console.log('[loadWrap] Response data:', { hasError: !!data.error, hasTitle: !!data.title });
 
       if (!res.ok) {
         if (res.status === 404) {
           setLoadError('This wrap was not found or may have expired.');
+        } else if (res.status === 503) {
+          setLoadError(data.message || 'Service temporarily unavailable. Please try again later.');
         } else {
-          setLoadError('Failed to load wrap. Please try again.');
+          setLoadError(data.message || data.error || 'Failed to load wrap. Please try again.');
         }
         setIsLoading(false);
         return;
       }
-      const data = await res.json();
 
       // Populate state with loaded data
       setTitle(data.title || '');
@@ -468,9 +477,10 @@ export default function App() {
       setStep('preview');
       setCurrentSlide(0);
       setIsLoading(false);
+      console.log('[loadWrap] Wrap loaded successfully');
     } catch (error) {
-      console.error('Error loading wrap:', error);
-      setLoadError('Failed to load wrap. Please try again.');
+      console.error('[loadWrap] Error:', error);
+      setLoadError('Unable to connect to the server. Please check your connection and try again.');
       setIsLoading(false);
     }
   }, []);
@@ -1497,6 +1507,98 @@ export default function App() {
 
   const FieldLabel = ({ children, required = false, error = false }) => (<label className={`block mb-3 font-bold text-base sm:text-lg uppercase tracking-wide ${error ? 'text-red-400' : 'text-white'}`}>{children}{required && <span className="text-red-400 ml-1">*</span>}</label>);
 
+  // Email form component - isolated to prevent focus loss
+  const EmailNotifyForm = React.memo(({ onSuccess }) => {
+    const [email, setEmail] = useState('');
+    const [isSubmitting, setIsSubmitting] = useState(false);
+    const [submitted, setSubmitted] = useState(false);
+    const [error, setError] = useState(null);
+    const inputRef = useRef(null);
+
+    const handleSubmit = async (e) => {
+      e.preventDefault();
+      if (!email || isSubmitting) return;
+
+      setIsSubmitting(true);
+      setError(null);
+      console.log('[EmailNotifyForm] Submitting email');
+
+      try {
+        const res = await fetch('/api/notify/subscribe', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email }),
+        });
+
+        const contentType = res.headers.get('content-type');
+        console.log('[EmailNotifyForm] Response:', res.status, contentType);
+
+        if (!contentType || !contentType.includes('application/json')) {
+          // API not available (local dev) - still show success for UX
+          console.log('[EmailNotifyForm] API not available locally');
+          setSubmitted(true);
+          onSuccess?.();
+          return;
+        }
+
+        const data = await res.json();
+
+        if (res.ok) {
+          console.log('[EmailNotifyForm] Success');
+          setSubmitted(true);
+          onSuccess?.();
+        } else {
+          console.error('[EmailNotifyForm] Error:', data);
+          setError(data.message || data.error || 'Failed to subscribe');
+        }
+      } catch (err) {
+        console.error('[EmailNotifyForm] Network error:', err);
+        // Network error (local dev) - show success for better UX
+        setSubmitted(true);
+        onSuccess?.();
+      } finally {
+        setIsSubmitting(false);
+      }
+    };
+
+    if (submitted) {
+      return (
+        <div className="text-center px-4 animate-fade-in">
+          <div className="w-12 h-12 rounded-full bg-green-500/20 flex items-center justify-center mx-auto mb-3">
+            <Check className="w-6 h-6 text-green-400" />
+          </div>
+          <p className="text-white/80 text-sm">We'll notify you when it's ready!</p>
+        </div>
+      );
+    }
+
+    return (
+      <form onSubmit={handleSubmit} className="w-full max-w-xs px-4" onClick={e => e.stopPropagation()}>
+        <input
+          ref={inputRef}
+          type="email"
+          value={email}
+          onChange={(e) => setEmail(e.target.value)}
+          placeholder="Enter your email"
+          className="w-full px-4 py-3 rounded-xl bg-gray-800/90 border border-white/20 text-white placeholder-white/50 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-purple-500 mb-3 text-sm transition-all"
+          required
+          autoComplete="email"
+        />
+        {error && (
+          <p className="text-red-400 text-xs mb-2">{error}</p>
+        )}
+        <button
+          type="submit"
+          disabled={isSubmitting || !email}
+          className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-purple-600 hover:bg-purple-500 disabled:bg-purple-600/50 disabled:cursor-not-allowed rounded-xl text-white font-bold transition-all text-sm transform hover:scale-[1.02] active:scale-[0.98]"
+        >
+          {isSubmitting ? <Loader2 size={16} className="animate-spin" /> : <Bell size={16} />}
+          {isSubmitting ? 'Subscribing...' : 'Get Notified'}
+        </button>
+      </form>
+    );
+  });
+
   // Homepage Component
   const HomePage = () => {
     const wrappedFeatures = [
@@ -1515,63 +1617,35 @@ export default function App() {
       'Analytics dashboard'
     ];
 
-    const [isSubmittingEmail, setIsSubmittingEmail] = useState(false);
-
-    const handleNotifySubmit = async (e) => {
-      e.preventDefault();
-      if (notifyEmail && !isSubmittingEmail) {
-        setIsSubmittingEmail(true);
-        try {
-          const res = await fetch('/api/notify/subscribe', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ email: notifyEmail }),
-          });
-
-          // Check if response is JSON (API available)
-          const contentType = res.headers.get('content-type');
-          if (!contentType || !contentType.includes('application/json')) {
-            // API not available (local dev) - still show success for UX
-            console.log('API not available locally, email:', notifyEmail);
-            setEmailSubmitted(true);
-            setIsSubmittingEmail(false);
-            return;
-          }
-
-          if (res.ok) {
-            setEmailSubmitted(true);
-          } else {
-            alert('Failed to subscribe. Please try again.');
-          }
-        } catch (error) {
-          // Network error (local dev without API) - show success for better UX
-          console.log('Email subscription (local):', notifyEmail);
-          setEmailSubmitted(true);
-        } finally {
-          setIsSubmittingEmail(false);
-        }
-      }
-    };
-
     return (
       <div className="min-h-screen relative overflow-hidden">
         <DynamicBackground moodId="twilight" />
         <NoiseOverlay forceShow={true} />
-        
+
+        {/* Floating aura orbs for depth */}
+        <div className="absolute inset-0 overflow-hidden pointer-events-none">
+          <div className="absolute w-[500px] h-[500px] rounded-full blur-[120px] animate-float-slow opacity-20"
+            style={{ background: 'radial-gradient(circle, rgba(139, 92, 246, 0.6) 0%, transparent 70%)', top: '-10%', left: '-10%' }} />
+          <div className="absolute w-[400px] h-[400px] rounded-full blur-[100px] animate-float-slower opacity-15"
+            style={{ background: 'radial-gradient(circle, rgba(236, 72, 153, 0.5) 0%, transparent 70%)', bottom: '-5%', right: '-5%' }} />
+          <div className="absolute w-[300px] h-[300px] rounded-full blur-[80px] animate-float-medium opacity-10"
+            style={{ background: 'radial-gradient(circle, rgba(59, 130, 246, 0.5) 0%, transparent 70%)', top: '40%', left: '60%' }} />
+        </div>
+
         <div className="relative z-10 min-h-screen flex flex-col">
           {/* Header with Logo */}
           <header className="pt-8 pb-2 px-6 text-center">
             <div className="relative inline-block mx-auto">
+              {/* Glow behind logo */}
+              <div className="absolute inset-0 w-20 h-20 sm:w-28 sm:h-28 rounded-full blur-2xl bg-purple-500/30 animate-pulse-slow" />
               {/* Logo with bounce animation */}
-              <img src="/MyWrap.png" alt="MyWrap" className="w-20 h-20 sm:w-28 sm:h-28 object-contain animate-logo-bounce" />
+              <img src="/MyWrap.png" alt="MyWrap" className="relative w-20 h-20 sm:w-28 sm:h-28 object-contain animate-logo-bounce drop-shadow-2xl" />
             </div>
-            <p className="text-white/70 text-[10px] sm:text-xs font-medium uppercase tracking-widest mt-1">Your moments, wrapped.</p>
+            <p className="text-white/70 text-[10px] sm:text-xs font-medium uppercase tracking-widest mt-1 animate-fade-in-up" style={{ animationDelay: '0.3s' }}>Your moments, wrapped.</p>
 
             {/* What is a Wrapped? */}
-            <div className="mt-6 flex items-start justify-center gap-1.5 text-white/60 text-sm max-w-md mx-auto">
-          
+            <div className="mt-6 flex items-start justify-center gap-1.5 text-white/60 text-sm max-w-md mx-auto animate-fade-in-up" style={{ animationDelay: '0.5s' }}>
               <p>
-               
                 <span className="text-white/50">Your personalized recap: track your moments, insights, and stats.</span>
               </p>
             </div>
@@ -1580,12 +1654,20 @@ export default function App() {
           {/* Main Content - Two Cards */}
           <main className="flex-1 flex items-center justify-center px-4 sm:px-8 py-8">
             <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 max-w-5xl w-full">
-              
+
               {/* Wrapped Card - Active Product */}
-              <div 
+              <div
                 onClick={() => setStep('input')}
-                className="group relative bg-white/5 backdrop-blur-2xl rounded-3xl p-6 sm:p-8 border border-white/10 cursor-pointer transition-all duration-500 hover:bg-white/10 hover:border-white/30 hover:scale-[1.02] hover:shadow-2xl overflow-hidden"
+                className="group relative rounded-3xl p-6 sm:p-8 cursor-pointer transition-all duration-500 hover:scale-[1.02] overflow-hidden animate-fade-in-up"
+                style={{ animationDelay: '0.6s' }}
               >
+                {/* Card background with layered depth */}
+                <div className="absolute inset-0 bg-gradient-to-br from-white/10 via-white/5 to-transparent backdrop-blur-2xl rounded-3xl border border-white/10 group-hover:border-white/30 transition-all duration-500" />
+                <div className="absolute inset-0 bg-gradient-to-br from-purple-500/10 via-transparent to-pink-500/10 rounded-3xl opacity-0 group-hover:opacity-100 transition-opacity duration-500" />
+
+                {/* Inner shadow for depth */}
+                <div className="absolute inset-[1px] rounded-3xl shadow-[inset_0_1px_1px_rgba(255,255,255,0.1)]" />
+
                 {/* Animated highlight border on hover */}
                 <div className="absolute inset-0 rounded-3xl opacity-0 group-hover:opacity-100 transition-opacity duration-500 pointer-events-none">
                   <div className="absolute inset-0 rounded-3xl animate-border-glow" style={{
@@ -1593,7 +1675,7 @@ export default function App() {
                     backgroundSize: '200% 100%'
                   }} />
                 </div>
-                
+
                 {/* Sparkle effects on hover */}
                 <div className="absolute top-4 right-4 opacity-0 group-hover:opacity-100 transition-all duration-500 transform group-hover:rotate-12">
                   <Sparkles className="w-6 h-6 text-purple-400" />
@@ -1604,7 +1686,7 @@ export default function App() {
 
                 <div className="relative z-10">
                   <div className="flex items-center gap-3 mb-4">
-                    <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center shadow-lg">
+                    <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center shadow-lg shadow-purple-500/30 group-hover:shadow-purple-500/50 transition-shadow duration-500">
                       <Sparkles className="w-6 h-6 text-white" />
                     </div>
                     <div>
@@ -1612,9 +1694,9 @@ export default function App() {
                       <span className="text-xs font-bold text-green-400 uppercase tracking-wider">Available Now</span>
                     </div>
                   </div>
-                  
+
                   <p className="text-white/70 mb-6">Create a custom wrapped for your trip, fitness achievements, reading list—anything worth sharing.</p>
-                  
+
                   <ul className="space-y-2 mb-6">
                     {wrappedFeatures.map((feature, i) => (
                       <li key={i} className="flex items-center gap-2 text-white/80 text-sm">
@@ -1623,8 +1705,9 @@ export default function App() {
                       </li>
                     ))}
                   </ul>
-                  
-                  <div className="flex items-center gap-2 text-white font-bold group-hover:gap-3 transition-all">
+
+                  {/* CTA Button with micro-interaction */}
+                  <div className="inline-flex items-center gap-2 px-5 py-3 bg-gradient-to-r from-purple-600 to-pink-600 rounded-xl text-white font-bold group-hover:from-purple-500 group-hover:to-pink-500 transition-all duration-300 shadow-lg shadow-purple-500/25 group-hover:shadow-purple-500/40 transform group-hover:translate-x-1">
                     <span>Start Creating</span>
                     <ChevronRight size={20} className="group-hover:translate-x-1 transition-transform" />
                   </div>
@@ -1632,39 +1715,16 @@ export default function App() {
               </div>
 
               {/* Coming Soon Card - Productivity Tracking */}
-              <div className="group relative bg-white/5 backdrop-blur-2xl rounded-3xl p-6 sm:p-8 border border-white/10 overflow-hidden">
+              <div className="group relative rounded-3xl p-6 sm:p-8 overflow-hidden animate-fade-in-up" style={{ animationDelay: '0.8s' }}>
+                {/* Card background with layered depth */}
+                <div className="absolute inset-0 bg-gradient-to-br from-white/10 via-white/5 to-transparent backdrop-blur-2xl rounded-3xl border border-white/10 transition-all duration-500" />
+                <div className="absolute inset-[1px] rounded-3xl shadow-[inset_0_1px_1px_rgba(255,255,255,0.1)]" />
+
                 {/* Blur overlay on hover */}
                 <div className="absolute inset-0 bg-black/70 backdrop-blur-md opacity-0 group-hover:opacity-100 transition-all duration-500 z-20 flex flex-col items-center justify-center rounded-3xl">
-                  <Lock className="w-12 h-12 text-white/80 mb-4" />
+                  <Lock className="w-12 h-12 text-white/80 mb-4 animate-bounce-subtle" />
                   <h3 className="text-xl font-bold text-white mb-4">Coming Soon</h3>
-                  
-                  {!emailSubmitted ? (
-                    <form onSubmit={handleNotifySubmit} className="w-full max-w-xs px-4" onClick={e => e.stopPropagation()}>
-                      <input
-                        type="email"
-                        value={notifyEmail}
-                        onChange={(e) => setNotifyEmail(e.target.value)}
-                        placeholder="Enter your email"
-                        className="w-full px-4 py-3 rounded-xl bg-gray-800/90 border border-white/20 text-white placeholder-white/50 focus:outline-none focus:ring-2 focus:ring-purple-500 mb-3 text-sm"
-                        required
-                      />
-                      <button
-                        type="submit"
-                        disabled={isSubmittingEmail}
-                        className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-purple-600 hover:bg-purple-500 disabled:bg-purple-600/50 rounded-xl text-white font-bold transition-colors text-sm"
-                      >
-                        {isSubmittingEmail ? <Loader2 size={16} className="animate-spin" /> : <Bell size={16} />}
-                        {isSubmittingEmail ? 'Subscribing...' : 'Get Notified'}
-                      </button>
-                    </form>
-                  ) : (
-                    <div className="text-center px-4">
-                      <div className="w-12 h-12 rounded-full bg-green-500/20 flex items-center justify-center mx-auto mb-3">
-                        <Check className="w-6 h-6 text-green-400" />
-                      </div>
-                      <p className="text-white/80 text-sm">We'll notify you when it's ready!</p>
-                    </div>
-                  )}
+                  <EmailNotifyForm />
                 </div>
 
                 <div className="relative z-10">
@@ -1720,6 +1780,56 @@ export default function App() {
             100% { transform: translateY(0); opacity: 1; }
           }
           .animate-logo-bounce { animation: logo-bounce 0.8s cubic-bezier(0.34, 1.56, 0.64, 1) forwards; }
+
+          /* Floating aura animations */
+          @keyframes float-slow {
+            0%, 100% { transform: translate(0, 0) scale(1); }
+            33% { transform: translate(30px, -20px) scale(1.05); }
+            66% { transform: translate(-20px, 15px) scale(0.95); }
+          }
+          .animate-float-slow { animation: float-slow 20s ease-in-out infinite; }
+
+          @keyframes float-slower {
+            0%, 100% { transform: translate(0, 0) scale(1); }
+            50% { transform: translate(-40px, 30px) scale(1.1); }
+          }
+          .animate-float-slower { animation: float-slower 25s ease-in-out infinite; }
+
+          @keyframes float-medium {
+            0%, 100% { transform: translate(0, 0); }
+            25% { transform: translate(20px, -30px); }
+            50% { transform: translate(-15px, -20px); }
+            75% { transform: translate(25px, 10px); }
+          }
+          .animate-float-medium { animation: float-medium 15s ease-in-out infinite; }
+
+          /* Fade in up animation */
+          @keyframes fade-in-up {
+            0% { opacity: 0; transform: translateY(20px); }
+            100% { opacity: 1; transform: translateY(0); }
+          }
+          .animate-fade-in-up { animation: fade-in-up 0.6s ease-out forwards; opacity: 0; }
+
+          /* Fade in animation */
+          @keyframes fade-in {
+            0% { opacity: 0; }
+            100% { opacity: 1; }
+          }
+          .animate-fade-in { animation: fade-in 0.4s ease-out forwards; }
+
+          /* Pulse slow */
+          @keyframes pulse-slow {
+            0%, 100% { opacity: 0.3; transform: scale(1); }
+            50% { opacity: 0.5; transform: scale(1.1); }
+          }
+          .animate-pulse-slow { animation: pulse-slow 3s ease-in-out infinite; }
+
+          /* Bounce subtle */
+          @keyframes bounce-subtle {
+            0%, 100% { transform: translateY(0); }
+            50% { transform: translateY(-5px); }
+          }
+          .animate-bounce-subtle { animation: bounce-subtle 2s ease-in-out infinite; }
         `}</style>
       </div>
     );
