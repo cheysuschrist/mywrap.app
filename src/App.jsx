@@ -575,15 +575,26 @@ export default function App() {
         transitions,
       };
 
-      const res = await fetch('/api/wraps/create', {
+      // Use absolute URL to ensure mobile browsers resolve correctly
+      const apiUrl = `${window.location.origin}/api/wraps/create`;
+      console.log('[saveWrap] Calling API:', apiUrl);
+
+      const res = await fetch(apiUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(wrapData),
       });
 
+      console.log('[saveWrap] Response status:', res.status);
+
       // Check if response is JSON (API might not be available locally)
       const contentType = res.headers.get('content-type');
+      console.log('[saveWrap] Content-Type:', contentType);
+
       if (!contentType || !contentType.includes('application/json')) {
+        // Log the actual response for debugging
+        const text = await res.text().catch(() => 'Could not read response');
+        console.error('[saveWrap] Non-JSON response:', text.substring(0, 500));
         throw new Error('API not available. Deploy to Vercel or run with `vercel dev` to enable sharing.');
       }
 
