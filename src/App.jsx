@@ -516,6 +516,16 @@ export default function App() {
     }
   }, []);
 
+  // Hide native preloader once React mounts
+  useEffect(() => {
+    const preload = document.getElementById('preload');
+    if (preload) {
+      preload.classList.add('hidden');
+      // Remove from DOM after fade transition
+      setTimeout(() => preload.remove(), 300);
+    }
+  }, []);
+
   // Check URL on mount for shared wrap
   useEffect(() => {
     const path = window.location.pathname;

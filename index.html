@@ -4,28 +4,91 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>Wrapped</title>
+    <link rel="preload" href="/MyWrap.png" as="image" />
     <style>
-      /* Prevent white flash on load - matches app background */
+      /* Prevent white flash - dark background immediately */
       html, body {
+        margin: 0;
+        padding: 0;
         background-color: #0a0a0a;
         background-image: linear-gradient(135deg, #1a0a2e 0%, #0a0a0a 50%, #1a0a2e 100%);
         min-height: 100vh;
+        font-family: system-ui, -apple-system, sans-serif;
       }
-      /* Initial loading state */
-      #root:empty::before {
-        content: '';
+
+      /* Native preloader - shows before React */
+      #preload {
         position: fixed;
         inset: 0;
-        background: radial-gradient(ellipse at center, rgba(139, 92, 246, 0.15) 0%, transparent 70%);
-        animation: loading-pulse 2s ease-in-out infinite;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        z-index: 9999;
+        background: linear-gradient(135deg, #1a0a2e 0%, #0a0a0a 50%, #1a0a2e 100%);
       }
-      @keyframes loading-pulse {
-        0%, 100% { opacity: 0.5; }
-        50% { opacity: 1; }
+
+      #preload img {
+        width: 80px;
+        height: 80px;
+        object-fit: contain;
+        animation: logo-pulse 1.5s ease-in-out infinite;
+      }
+
+      #preload .progress-container {
+        width: 120px;
+        height: 4px;
+        background: rgba(255, 255, 255, 0.1);
+        border-radius: 4px;
+        margin-top: 20px;
+        overflow: hidden;
+      }
+
+      #preload .progress-bar {
+        height: 100%;
+        width: 0%;
+        background: linear-gradient(90deg, #8b5cf6, #ec4899);
+        border-radius: 4px;
+        animation: progress-load 1.5s ease-out forwards;
+      }
+
+      #preload .loading-text {
+        color: rgba(255, 255, 255, 0.5);
+        font-size: 12px;
+        margin-top: 12px;
+        letter-spacing: 2px;
+        text-transform: uppercase;
+      }
+
+      @keyframes logo-pulse {
+        0%, 100% { opacity: 0.8; transform: scale(1); }
+        50% { opacity: 1; transform: scale(1.05); }
+      }
+
+      @keyframes progress-load {
+        0% { width: 0%; }
+        50% { width: 70%; }
+        100% { width: 95%; }
+      }
+
+      /* Hide preloader when done */
+      #preload.hidden {
+        opacity: 0;
+        pointer-events: none;
+        transition: opacity 0.3s ease-out;
       }
     </style>
   </head>
   <body>
+    <!-- Native preloader - renders before React -->
+    <div id="preload">
+      <img src="/MyWrap.png" alt="MyWrap" />
+      <div class="progress-container">
+        <div class="progress-bar"></div>
+      </div>
+      <div class="loading-text">Loading</div>
+    </div>
+
     <div id="root"></div>
     <script type="module" src="/src/main.jsx"></script>
   </body>
