@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { Share2, Plus, Trash2, ArrowRight, ArrowLeft, Sparkles, Volume2, VolumeX, Upload, X, Star, Edit3, ImagePlus, Book, Plane, Heart, GraduationCap, Film, Dumbbell, Lock, Bell, Check, ChevronRight, Lightbulb, Camera, Link, Copy, Loader2 } from 'lucide-react';
 
 export default function App() {
@@ -56,6 +56,19 @@ export default function App() {
   const [shareModalOpen, setShareModalOpen] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [loadError, setLoadError] = useState(null);
+
+  // Onboarding slideshow state
+  const [showOnboarding, setShowOnboarding] = useState(false);
+  const [hasSeenOnboarding, setHasSeenOnboarding] = useState(() => {
+    if (typeof window !== 'undefined') {
+      return localStorage.getItem('mywrap_seen_onboarding') === 'true';
+    }
+    return false;
+  });
+
+  // Scroll state for hiding nav buttons
+  const [isScrolled, setIsScrolled] = useState(false);
+  const scrollTimeoutRef = useRef(null);
 
   const coverRef = useRef(null);
   const audioRef = useRef(null);
@@ -404,6 +417,13 @@ export default function App() {
 
   const editWrapped = () => { setStep('input'); setShowConfetti(false); setAttemptedSubmit(false); setValidationErrors({}); };
 
+  // Start creating - shows onboarding on first visit
+  const startCreating = () => {
+    setStep('input');
+    // Always show onboarding for now (remove hasSeenOnboarding check temporarily for testing)
+    setShowOnboarding(true);
+  };
+
   const resetWrapped = () => {
     setTitle(''); setDateRange(''); setCoverImage(null); setSelectedMood('twilight');
     setStats([{ label: '', value: '', image: null, note: '', isHighlight: false }]); setMoments([]); setBadges([]);
@@ -495,6 +515,29 @@ export default function App() {
   }, [loadWrap]);
 
   useEffect(() => { if (attemptedSubmit) validateForm(); }, [title, dateRange, stats, attemptedSubmit]);
+
+  // Handle scroll to hide/show navigation buttons
+  useEffect(() => {
+    const handleScroll = () => {
+      setIsScrolled(true);
+      // Clear existing timeout
+      if (scrollTimeoutRef.current) {
+        clearTimeout(scrollTimeoutRef.current);
+      }
+      // Show buttons again after scrolling stops
+      scrollTimeoutRef.current = setTimeout(() => {
+        setIsScrolled(false);
+      }, 1500);
+    };
+
+    window.addEventListener('scroll', handleScroll, { passive: true });
+    return () => {
+      window.removeEventListener('scroll', handleScroll);
+      if (scrollTimeoutRef.current) {
+        clearTimeout(scrollTimeoutRef.current);
+      }
+    };
+  }, []);
 
   const validStats = stats.filter(s => s.label && s.value);
   const validMoments = moments.filter(m => m.label && m.image);
@@ -769,10 +812,11 @@ export default function App() {
     if (currentSlideInfo.type === 'stat') {
       const statIndex = currentSlideInfo.index;
       if (validStats[statIndex]?.isHighlight && !viewedHighlights.has(statIndex)) {
-        // delay marking highlights as viewed so highlight animations (glow + stars) can play
+        // Delay marking as "viewed" so we don't replay on re-visit
+        // Animation runs for ~5 seconds max (3s delay + 2-4s duration)
         const markTimeout = setTimeout(() => {
           setViewedHighlights(prev => new Set([...prev, statIndex]));
-        }, 5000);  // Allow 5 seconds for falling stars animation to complete
+        }, 8000);  // Allow 8 seconds for falling stars animation to complete fully
         return () => clearTimeout(markTimeout);
       }
     }
@@ -1045,45 +1089,672 @@ export default function App() {
   // Share Modal - shows shareable link after saving
   const ShareModal = ({ url, onClose }) => {
     const [copied, setCopied] = useState(false);
+    const [copyError, setCopyError] = useState(false);
 
-    const handleCopy = () => {
-      navigator.clipboard.writeText(url);
-      setCopied(true);
-      setTimeout(() => setCopied(false), 2000);
+    const handleCopy = async () => {
+      try {
+        // Try modern clipboard API first
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+          await navigator.clipboard.writeText(url);
+        } else {
+          // Fallback for older browsers
+          const textArea = document.createElement('textarea');
+          textArea.value = url;
+          textArea.style.position = 'fixed';
+          textArea.style.left = '-999999px';
+          document.body.appendChild(textArea);
+          textArea.select();
+          document.execCommand('copy');
+          document.body.removeChild(textArea);
+        }
+        setCopied(true);
+        setCopyError(false);
+        setTimeout(() => setCopied(false), 2500);
+      } catch (err) {
+        console.error('Copy failed:', err);
+        setCopyError(true);
+        setTimeout(() => setCopyError(false), 2000);
+      }
     };
 
     return (
       <div className={`fixed inset-0 z-50 flex items-center justify-center ${isSafari ? 'bg-black/60' : 'bg-black/40 backdrop-blur-sm'}`} onClick={onClose}>
         <div className={`rounded-2xl p-6 border border-white/20 max-w-md w-full mx-4 shadow-2xl ${isSafari ? 'bg-gray-900/95' : 'bg-white/10 backdrop-blur-2xl'}`} onClick={e => e.stopPropagation()}>
           <div className="text-center mb-6">
-            <div className="w-16 h-16 rounded-full bg-gradient-to-br from-green-400 to-emerald-500 flex items-center justify-center mx-auto mb-4">
-              <Check size={32} className="text-white" />
+            <div className={`w-16 h-16 rounded-full flex items-center justify-center mx-auto mb-4 transition-all duration-300 ${copied ? 'bg-green-500 scale-110' : 'bg-gradient-to-br from-green-400 to-emerald-500'}`}>
+              <Check size={32} className={`text-white transition-transform duration-300 ${copied ? 'scale-125' : ''}`} />
             </div>
             <h3 className="text-xl font-bold text-white mb-2">Your Wrap is Ready!</h3>
             <p className="text-white/60 text-sm">Share this link with friends so they can view your wrap.</p>
           </div>
 
-          <div className="bg-black/30 rounded-xl p-4 mb-4">
+          {/* Clickable URL box - click to copy */}
+          <button
+            onClick={handleCopy}
+            className={`w-full bg-black/30 rounded-xl p-4 mb-4 text-left transition-all duration-200 hover:bg-black/40 active:scale-[0.98] border-2 ${copied ? 'border-green-500/50' : 'border-transparent'}`}
+          >
             <div className="flex items-center gap-3">
               <Link size={18} className="text-white/50 flex-shrink-0" />
               <div className="flex-1 min-w-0">
                 <p className="text-white text-sm font-mono truncate">{url}</p>
               </div>
+              {copied && <Check size={16} className="text-green-400 flex-shrink-0 animate-bounce" />}
             </div>
-          </div>
+          </button>
 
           <button
             onClick={handleCopy}
-            className={`w-full py-4 rounded-xl font-bold text-base uppercase tracking-wide transition-all flex items-center justify-center gap-2 ${copied ? 'bg-green-500 text-white' : 'bg-white text-black hover:bg-white/90'}`}
+            className={`w-full py-4 rounded-xl font-bold text-base uppercase tracking-wide transition-all duration-200 flex items-center justify-center gap-2 active:scale-[0.97] ${
+              copied ? 'bg-green-500 text-white scale-[1.02]' :
+              copyError ? 'bg-red-500 text-white' :
+              'bg-white text-black hover:bg-white/90 hover:scale-[1.01]'
+            }`}
           >
-            {copied ? <Check size={18} /> : <Copy size={18} />}
-            {copied ? 'Copied!' : 'Copy Link'}
+            {copied ? <Check size={18} className="animate-bounce" /> : copyError ? <X size={18} /> : <Copy size={18} />}
+            {copied ? 'Copied!' : copyError ? 'Try Again' : 'Copy Link'}
           </button>
 
           <button onClick={onClose} className="w-full mt-3 py-3 bg-white/10 hover:bg-white/20 rounded-xl text-white/60 text-sm font-medium transition-colors border border-white/10">
             Close
           </button>
         </div>
+      </div>
+    );
+  };
+
+  // Onboarding Slideshow - shows on first visit to explain features
+  const OnboardingSlideshow = ({ onClose }) => {
+    const [onboardingSlide, setOnboardingSlide] = useState(0);
+    const [isAutoPlaying, setIsAutoPlaying] = useState(true);
+    const [onboardingDirection, setOnboardingDirection] = useState('next');
+    const autoPlayRef = useRef(null);
+
+    const slides = [
+      {
+        id: 'welcome',
+        title: 'MyWrap',
+        subtitle: 'Create shareable recaps for any moment.',
+        icon: null, // Uses logo instead
+        visual: 'welcome',
+        gradient: ['#2e1065', '#4a1d6a'],  // Darker purple tones
+      },
+      {
+        id: 'stats',
+        title: 'Stats',
+        subtitle: 'Track your numbers, achievements, and milestones',
+        icon: '📊',
+        visual: 'stats',
+        gradient: ['#f59e0b', '#ef4444'],
+        example: { label: 'Books Read', value: '47' },
+      },
+      {
+        id: 'highlights',
+        title: 'Highlights',
+        subtitle: 'Mark special stats with a golden glow effect',
+        icon: '⭐',
+        visual: 'highlight',
+        gradient: ['#fbbf24', '#f59e0b'],
+        example: { label: 'Favorite Book', value: 'The Midnight Library', isHighlight: true },
+      },
+      {
+        id: 'moments',
+        title: 'Moments',
+        subtitle: 'Add photos to capture your favorite memories',
+        icon: '📸',
+        visual: 'moments',
+        gradient: ['#ec4899', '#8b5cf6'],
+      },
+      {
+        id: 'badges',
+        title: 'Badges',
+        subtitle: 'Celebrate achievements with fun emoji badges',
+        icon: '🏆',
+        visual: 'badges',
+        gradient: ['#10b981', '#06b6d4'],
+        badges: ['🎯', '💪', '🔥', '👑'],
+      },
+      {
+        id: 'reflections',
+        title: 'Reflections',
+        subtitle: 'Share your thoughts and personal takeaways',
+        icon: '💭',
+        visual: 'reflections',
+        gradient: ['#6366f1', '#8b5cf6'],
+      },
+      {
+        id: 'transitions',
+        title: 'Transitions',
+        subtitle: 'Add dramatic effects between slides',
+        icon: '🎬',
+        visual: 'transitions',
+        gradient: ['#f97316', '#dc2626'],
+        transitions: ['Drumroll', 'Impact'],
+      },
+      {
+        id: 'customize',
+        title: 'Music & Moods',
+        subtitle: 'Set the vibe with background music and color themes',
+        icon: '🎵',
+        visual: 'customize',
+        gradient: ['#06b6d4', '#8b5cf6', '#ec4899'],
+        moods: ['twilight', 'crimson', 'ocean', 'aurora'],
+      },
+      {
+        id: 'share',
+        title: 'Share Your Story',
+        subtitle: 'Get a unique link to share with friends and family',
+        icon: '🔗',
+        visual: 'share',
+        gradient: ['#22c55e', '#10b981'],
+      },
+    ];
+
+    const totalSlides = slides.length;
+
+    // Auto-advance slides - first slide is shorter (2.5s), others are 4s
+    useEffect(() => {
+      if (isAutoPlaying) {
+        const duration = onboardingSlide === 0 ? 2500 : 4000;
+        autoPlayRef.current = setTimeout(() => {
+          setOnboardingDirection('next');
+          setOnboardingSlide(prev => (prev + 1) % totalSlides);
+        }, duration);
+      }
+      return () => {
+        if (autoPlayRef.current) clearTimeout(autoPlayRef.current);
+      };
+    }, [isAutoPlaying, totalSlides, onboardingSlide]);
+
+    const goToSlide = (index) => {
+      setIsAutoPlaying(false);
+      setOnboardingDirection(index > onboardingSlide ? 'next' : 'prev');
+      setOnboardingSlide(index);
+    };
+
+    const nextOnboardingSlide = () => {
+      setIsAutoPlaying(false);
+      setOnboardingDirection('next');
+      setOnboardingSlide(prev => (prev + 1) % totalSlides);
+    };
+
+    const prevOnboardingSlide = () => {
+      setIsAutoPlaying(false);
+      setOnboardingDirection('prev');
+      setOnboardingSlide(prev => (prev - 1 + totalSlides) % totalSlides);
+    };
+
+    const handleClose = () => {
+      localStorage.setItem('mywrap_seen_onboarding', 'true');
+      setHasSeenOnboarding(true);
+      onClose();
+    };
+
+    const slide = slides[onboardingSlide];
+
+    // Visual content for each slide type
+    const renderVisual = () => {
+      switch (slide.visual) {
+        case 'welcome':
+          return (
+            <div className="relative w-full h-56 flex flex-col items-center justify-center">
+              {/* Logo container - bounce on entry only, no background effects */}
+              <div className="relative flex flex-col items-center">
+                <img
+                  src="/MyWrap-Logo.png"
+                  alt="MyWrap Logo"
+                  className="w-36 h-36 object-contain drop-shadow-2xl animate-logo-bounce-entry"
+                />
+                {/* Tour indicator text */}
+                <div className="mt-4 text-white/50 text-xs uppercase tracking-widest animate-fade-in-delayed">
+                  Tour of Features
+                </div>
+              </div>
+            </div>
+          );
+
+        case 'stats':
+          return (
+            <div className="relative w-full h-48 flex items-center justify-center px-6">
+              <div className="w-full max-w-xs bg-black/40 backdrop-blur-xl rounded-2xl border border-white/20 p-5 shadow-2xl">
+                <div className="text-white/50 text-xs uppercase tracking-wider mb-2 font-medium">{slide.example.label}</div>
+                <div className="text-4xl font-black text-white mb-1">{slide.example.value}</div>
+                <div className="w-full h-1 bg-white/10 rounded-full overflow-hidden">
+                  <div className="h-full bg-gradient-to-r from-amber-400 to-orange-500 rounded-full animate-stat-fill" style={{ width: '75%' }} />
+                </div>
+              </div>
+            </div>
+          );
+
+        case 'highlight':
+          return (
+            <div className="relative w-full h-48 flex items-center justify-center px-6">
+              <div className="w-full max-w-xs bg-black/40 backdrop-blur-xl rounded-2xl border-2 border-yellow-400/50 p-5 shadow-2xl relative overflow-hidden">
+                {/* Golden glow effect */}
+                <div className="absolute inset-0 bg-gradient-to-br from-yellow-400/20 via-transparent to-amber-500/10 animate-glow-breathe" />
+                <div className="absolute -top-2 -right-2 w-8 h-8 flex items-center justify-center">
+                  <Star size={24} className="text-yellow-400 fill-yellow-400 animate-pulse" />
+                </div>
+                <div className="relative">
+                  <div className="text-yellow-300/70 text-xs uppercase tracking-wider mb-2 font-medium">{slide.example.label}</div>
+                  <div className="text-2xl font-black text-white">{slide.example.value}</div>
+                </div>
+              </div>
+            </div>
+          );
+
+        case 'moments':
+          return (
+            <div className="relative w-full h-48 flex items-center justify-center px-6">
+              <div className="relative">
+                {/* Stacked photo effect */}
+                <div className="absolute -rotate-6 -left-2 top-2 w-40 h-28 rounded-xl bg-gradient-to-br from-pink-500/40 to-purple-500/40 border border-white/20" />
+                <div className="absolute rotate-3 left-2 -top-1 w-40 h-28 rounded-xl bg-gradient-to-br from-blue-500/40 to-cyan-500/40 border border-white/20" />
+                <div className="relative w-44 h-32 rounded-xl bg-gradient-to-br from-violet-500/60 to-pink-500/60 border-2 border-white/30 flex items-center justify-center shadow-2xl">
+                  <Camera size={32} className="text-white/80" />
+                  <div className="absolute bottom-2 left-2 right-2 bg-black/40 rounded-lg px-2 py-1">
+                    <p className="text-white text-xs font-medium truncate">Summer vacation 🌴</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          );
+
+        case 'badges':
+          return (
+            <div className="relative w-full h-48 flex items-center justify-center">
+              <div className="flex gap-3">
+                {slide.badges.map((badge, i) => (
+                  <div
+                    key={badge}
+                    className="w-16 h-16 rounded-2xl bg-black/40 backdrop-blur border border-white/20 flex items-center justify-center text-3xl shadow-lg animate-badge-pop"
+                    style={{ animationDelay: `${i * 0.15}s` }}
+                  >
+                    {badge}
+                  </div>
+                ))}
+              </div>
+            </div>
+          );
+
+        case 'reflections':
+          return (
+            <div className="relative w-full h-48 flex items-center justify-center px-6">
+              <div className="w-full max-w-xs bg-black/40 backdrop-blur-xl rounded-2xl border border-white/20 p-5 shadow-2xl">
+                <div className="text-white/50 text-xs uppercase tracking-wider mb-3 font-medium flex items-center gap-2">
+                  <Lightbulb size={14} /> Personal Reflection
+                </div>
+                <p className="text-white/90 text-sm italic leading-relaxed">
+                  "This year taught me that growth isn't always linear, but every step forward counts..."
+                </p>
+                <div className="mt-3 flex justify-end">
+                  <div className="text-white/40 text-xs">— Your thoughts</div>
+                </div>
+              </div>
+            </div>
+          );
+
+        case 'transitions':
+          return (
+            <div className="relative w-full h-48 flex flex-col items-center justify-center gap-4">
+              {/* Transition effects demo */}
+              <div className="flex gap-4">
+                {/* Drumroll preview */}
+                <div className="bg-black/40 backdrop-blur rounded-2xl p-4 border border-white/20 flex flex-col items-center gap-2 animate-transition-card" style={{ animationDelay: '0s' }}>
+                  <div className="flex items-center gap-1.5">
+                    <div className="text-2xl font-black text-orange-400 animate-countdown-3">3</div>
+                    <div className="text-2xl font-black text-orange-300 animate-countdown-2">2</div>
+                    <div className="text-2xl font-black text-orange-200 animate-countdown-1">1</div>
+                  </div>
+                  <span className="text-white/60 text-xs font-medium">Drumroll</span>
+                </div>
+                {/* Impact preview */}
+                <div className="bg-black/40 backdrop-blur rounded-2xl p-4 border border-white/20 flex flex-col items-center gap-2 animate-transition-card" style={{ animationDelay: '0.2s' }}>
+                  <div className="relative">
+                    <div className="w-10 h-10 rounded-lg bg-gradient-to-br from-red-500 to-orange-500 animate-impact-demo" />
+                    <div className="absolute inset-0 w-10 h-10 rounded-lg bg-red-400/30 animate-impact-ring" />
+                  </div>
+                  <span className="text-white/60 text-xs font-medium">Impact</span>
+                </div>
+              </div>
+              <p className="text-white/40 text-xs text-center max-w-[200px]">Add between slides for dramatic reveals</p>
+            </div>
+          );
+
+        case 'customize':
+          return (
+            <div className="relative w-full h-48 flex flex-col items-center justify-center gap-4">
+              {/* Music visualization */}
+              <div className="flex items-center gap-3 bg-black/40 backdrop-blur rounded-full px-4 py-2 border border-white/20">
+                <Volume2 size={18} className="text-white/70" />
+                <div className="flex items-end gap-0.5 h-5">
+                  {[...Array(5)].map((_, i) => (
+                    <div
+                      key={i}
+                      className="w-1 bg-gradient-to-t from-cyan-400 to-purple-400 rounded-full animate-music-bar"
+                      style={{
+                        height: '100%',
+                        animationDelay: `${i * 0.1}s`,
+                      }}
+                    />
+                  ))}
+                </div>
+                <span className="text-white/70 text-sm">Lofi Beats</span>
+              </div>
+              {/* Mood colors */}
+              <div className="flex gap-2">
+                {slide.moods?.map((mood, i) => {
+                  const moodData = moods.find(m => m.id === mood);
+                  return (
+                    <div
+                      key={mood}
+                      className="w-10 h-10 rounded-full border-2 border-white/30 shadow-lg animate-mood-pop"
+                      style={{
+                        background: `linear-gradient(135deg, ${moodData?.bgColors[0] || '#000'} 0%, ${moodData?.bgColors[1] || '#333'} 100%)`,
+                        animationDelay: `${i * 0.1}s`,
+                      }}
+                    />
+                  );
+                })}
+              </div>
+            </div>
+          );
+
+        case 'share':
+          return (
+            <div className="relative w-full h-48 flex items-center justify-center px-6">
+              <div className="w-full max-w-xs">
+                <div className="bg-black/40 backdrop-blur-xl rounded-2xl border border-white/20 p-4 shadow-2xl mb-3">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-full bg-gradient-to-br from-green-400 to-emerald-500 flex items-center justify-center">
+                      <Link size={18} className="text-white" />
+                    </div>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-white/50 text-xs">Your unique link</p>
+                      <p className="text-white text-sm font-mono truncate">mywrap.app/w/abc123</p>
+                    </div>
+                  </div>
+                </div>
+                <div className="flex gap-2 justify-center">
+                  <div className="px-4 py-2 bg-white/10 rounded-full text-white/70 text-xs flex items-center gap-1">
+                    <Copy size={12} /> Copy
+                  </div>
+                  <div className="px-4 py-2 bg-white/10 rounded-full text-white/70 text-xs flex items-center gap-1">
+                    <Share2 size={12} /> Share
+                  </div>
+                </div>
+              </div>
+            </div>
+          );
+
+        default:
+          return null;
+      }
+    };
+
+    return (
+      <div className={`fixed inset-0 z-[100] flex items-center justify-center p-4 ${isSafari ? 'bg-black/80' : 'bg-black/80 backdrop-blur-md'}`}>
+        {/* Main slideshow container - phone frame style */}
+        <div
+          className="relative w-full max-w-sm rounded-3xl border border-white/20 shadow-2xl overflow-hidden"
+          style={{
+            background: isSafari
+              ? `linear-gradient(135deg, ${slide.gradient[0]}cc 0%, ${slide.gradient[1] || slide.gradient[0]}cc 100%)`
+              : `linear-gradient(135deg, ${slide.gradient[0]}20 0%, ${slide.gradient[1] || slide.gradient[0]}20 100%)`,
+            maxHeight: '85vh',
+          }}
+        >
+          {/* Background gradient orbs - hide on Safari for welcome slide, static for other slides */}
+          <div className="absolute inset-0 overflow-hidden pointer-events-none">
+            {/* Left orb - hide completely on Safari for welcome slide */}
+            {!(isSafari && slide.id === 'welcome') && (
+              <div
+                className={`absolute w-64 h-64 rounded-full ${isSafari ? 'opacity-15' : 'opacity-30 blur-3xl'} -top-20 -left-20 transition-all duration-1000`}
+                style={{
+                  background: slide.gradient[0],
+                  filter: isSafari ? 'blur(60px)' : undefined,
+                }}
+              />
+            )}
+            <div
+              className={`absolute w-64 h-64 rounded-full ${isSafari ? 'opacity-10' : 'opacity-30 blur-3xl'} -bottom-20 -right-20 transition-all duration-1000`}
+              style={{
+                background: slide.gradient[1] || slide.gradient[0],
+                filter: isSafari ? 'blur(60px)' : undefined,
+              }}
+            />
+          </div>
+
+          {/* Close button */}
+          <button
+            onClick={handleClose}
+            className="absolute top-4 right-4 z-20 w-8 h-8 rounded-full bg-white/10 hover:bg-white/20 flex items-center justify-center text-white/70 hover:text-white transition-colors"
+          >
+            <X size={18} />
+          </button>
+
+          {/* Progress bar */}
+          <div className="absolute top-4 left-4 right-14 z-20 flex gap-1">
+            {slides.map((_, i) => (
+              <button
+                key={i}
+                onClick={() => goToSlide(i)}
+                className="flex-1 h-1 rounded-full overflow-hidden bg-white/20 hover:bg-white/30 transition-colors"
+              >
+                <div
+                  className={`h-full rounded-full transition-all duration-300 ${
+                    i < onboardingSlide ? 'w-full bg-white' :
+                    i === onboardingSlide ? 'bg-white animate-progress-fill' : 'w-0'
+                  }`}
+                  style={i === onboardingSlide ? { animationDuration: '4s' } : {}}
+                />
+              </button>
+            ))}
+          </div>
+
+          {/* Slide content */}
+          <div className="relative pt-12 pb-6 px-6 min-h-[480px] flex flex-col">
+            {/* Icon - only show if not welcome slide */}
+            {slide.icon && (
+              <div className="text-center mb-2">
+                <span className="text-4xl">{slide.icon}</span>
+              </div>
+            )}
+
+            {/* Title */}
+            <h2 className={`text-2xl font-black text-white text-center mb-2 animate-fade-in-up ${!slide.icon ? 'mt-4' : ''}`}>
+              {slide.title}
+            </h2>
+
+            {/* Subtitle */}
+            <p className="text-white/60 text-center text-sm mb-6 animate-fade-in-up" style={{ animationDelay: '0.1s' }}>
+              {slide.subtitle}
+            </p>
+
+            {/* Visual content */}
+            <div className="flex-1 flex items-center justify-center animate-fade-in-up" style={{ animationDelay: '0.2s' }}>
+              {renderVisual()}
+            </div>
+
+            {/* Navigation arrows */}
+            <div className="flex justify-between items-center mt-6">
+              <button
+                onClick={prevOnboardingSlide}
+                className={`w-10 h-10 rounded-full flex items-center justify-center transition-all ${
+                  onboardingSlide === 0 ? 'bg-white/5 text-white/30' : 'bg-white/10 text-white hover:bg-white/20'
+                }`}
+                disabled={onboardingSlide === 0}
+              >
+                <ArrowLeft size={18} />
+              </button>
+
+              {/* Slide counter */}
+              <div className="text-white/40 text-sm font-medium">
+                {onboardingSlide + 1} / {totalSlides}
+              </div>
+
+              {onboardingSlide === totalSlides - 1 ? (
+                <button
+                  onClick={handleClose}
+                  className="px-5 py-2.5 rounded-full bg-white text-black font-bold text-sm hover:bg-white/90 transition-colors flex items-center gap-2"
+                >
+                  Get Started <ArrowRight size={16} />
+                </button>
+              ) : (
+                <button
+                  onClick={nextOnboardingSlide}
+                  className="w-10 h-10 rounded-full bg-white/10 text-white hover:bg-white/20 flex items-center justify-center transition-all"
+                >
+                  <ArrowRight size={18} />
+                </button>
+              )}
+            </div>
+          </div>
+
+          {/* Skip button */}
+          {onboardingSlide < totalSlides - 1 && (
+            <button
+              onClick={handleClose}
+              className="absolute bottom-4 left-1/2 -translate-x-1/2 text-white/40 text-xs hover:text-white/60 transition-colors"
+            >
+              Skip intro
+            </button>
+          )}
+        </div>
+
+        {/* Onboarding animations */}
+        <style>{`
+          @keyframes progress-fill {
+            from { width: 0; }
+            to { width: 100%; }
+          }
+          .animate-progress-fill {
+            animation: progress-fill linear forwards;
+          }
+          @keyframes stat-fill {
+            from { width: 0; }
+            to { width: 75%; }
+          }
+          .animate-stat-fill {
+            animation: stat-fill 1s ease-out forwards;
+          }
+          @keyframes badge-pop {
+            0% { transform: scale(0) rotate(-10deg); opacity: 0; }
+            60% { transform: scale(1.2) rotate(5deg); }
+            100% { transform: scale(1) rotate(0deg); opacity: 1; }
+          }
+          .animate-badge-pop {
+            animation: badge-pop 0.5s ease-out forwards;
+            opacity: 0;
+          }
+          @keyframes mood-pop {
+            0% { transform: scale(0); }
+            60% { transform: scale(1.15); }
+            100% { transform: scale(1); }
+          }
+          .animate-mood-pop {
+            animation: mood-pop 0.4s ease-out forwards;
+          }
+          @keyframes music-bar {
+            0%, 100% { height: 20%; }
+            50% { height: 100%; }
+          }
+          .animate-music-bar {
+            animation: music-bar 0.8s ease-in-out infinite;
+          }
+          @keyframes glow-breathe {
+            0%, 100% { opacity: 0.3; }
+            50% { opacity: 0.6; }
+          }
+          .animate-glow-breathe {
+            animation: glow-breathe 2s ease-in-out infinite;
+          }
+          @keyframes logo-breathe {
+            0%, 100% { opacity: 0.4; transform: scale(1); }
+            50% { opacity: 0.7; transform: scale(1.1); }
+          }
+          .animate-logo-breathe {
+            animation: logo-breathe 3s ease-in-out infinite;
+          }
+          @keyframes logo-pulse-safari {
+            0%, 100% { transform: scale(1); }
+            50% { transform: scale(1.08); }
+          }
+          .animate-logo-pulse-safari {
+            animation: logo-pulse-safari 2s ease-in-out infinite;
+          }
+          @keyframes logo-bounce-entry {
+            0% { opacity: 0; transform: scale(0.3) translateY(30px); }
+            50% { opacity: 1; transform: scale(1.1) translateY(-10px); }
+            70% { transform: scale(0.95) translateY(5px); }
+            100% { transform: scale(1) translateY(0); }
+          }
+          .animate-logo-bounce-entry {
+            animation: logo-bounce-entry 0.8s cubic-bezier(0.34, 1.56, 0.64, 1) forwards;
+          }
+          @keyframes fade-in-delayed {
+            0% { opacity: 0; transform: translateY(10px); }
+            100% { opacity: 0.5; transform: translateY(0); }
+          }
+          .animate-fade-in-delayed {
+            animation: fade-in-delayed 0.5s ease-out 0.6s forwards;
+            opacity: 0;
+          }
+          @keyframes float-dot {
+            0%, 100% { transform: translateY(0) scale(1); opacity: 0.3; }
+            50% { transform: translateY(-15px) scale(1.2); opacity: 0.6; }
+          }
+          .animate-float-dot {
+            animation: float-dot ease-in-out infinite;
+          }
+          @keyframes wave-1 {
+            0%, 100% { d: path('M0,100 Q100,60 200,100 T400,100'); }
+            50% { d: path('M0,100 Q100,140 200,100 T400,100'); }
+          }
+          @keyframes wave-2 {
+            0%, 100% { d: path('M0,120 Q100,80 200,120 T400,120'); }
+            50% { d: path('M0,120 Q100,160 200,120 T400,120'); }
+          }
+          @keyframes wave-3 {
+            0%, 100% { d: path('M0,80 Q100,40 200,80 T400,80'); }
+            50% { d: path('M0,80 Q100,120 200,80 T400,80'); }
+          }
+          .animate-wave-1 { animation: wave-1 4s ease-in-out infinite; }
+          .animate-wave-2 { animation: wave-2 5s ease-in-out infinite; animation-delay: 0.5s; }
+          .animate-wave-3 { animation: wave-3 6s ease-in-out infinite; animation-delay: 1s; }
+          @keyframes transition-card {
+            0% { opacity: 0; transform: translateY(20px) scale(0.9); }
+            100% { opacity: 1; transform: translateY(0) scale(1); }
+          }
+          .animate-transition-card {
+            animation: transition-card 0.5s ease-out forwards;
+            opacity: 0;
+          }
+          @keyframes countdown-3 {
+            0%, 100% { opacity: 1; transform: scale(1); }
+            50% { opacity: 0.5; transform: scale(0.8); }
+          }
+          @keyframes countdown-2 {
+            0%, 100% { opacity: 0.7; transform: scale(0.9); }
+            50% { opacity: 1; transform: scale(1.1); }
+          }
+          @keyframes countdown-1 {
+            0%, 100% { opacity: 0.5; transform: scale(0.8); }
+            50% { opacity: 1; transform: scale(1.2); }
+          }
+          .animate-countdown-3 { animation: countdown-3 1.5s ease-in-out infinite; }
+          .animate-countdown-2 { animation: countdown-2 1.5s ease-in-out infinite; animation-delay: 0.5s; }
+          .animate-countdown-1 { animation: countdown-1 1.5s ease-in-out infinite; animation-delay: 1s; }
+          @keyframes impact-demo {
+            0%, 100% { transform: scale(1) translateY(0); }
+            50% { transform: scale(1.2) translateY(-5px); }
+          }
+          @keyframes impact-ring {
+            0%, 100% { transform: scale(1); opacity: 0.5; }
+            50% { transform: scale(1.5); opacity: 0; }
+          }
+          .animate-impact-demo { animation: impact-demo 2s ease-in-out infinite; }
+          .animate-impact-ring { animation: impact-ring 2s ease-in-out infinite; }
+        `}</style>
       </div>
     );
   };
@@ -1127,11 +1798,47 @@ export default function App() {
     return (<div className="absolute inset-0 pointer-events-none overflow-hidden">{bursts.map(burst => (<div key={burst.id} className="absolute animate-firework" style={{ left: `${burst.x}%`, top: `${burst.y}%`, animationDelay: `${burst.delay}s` }}>{[...Array(12)].map((_, i) => (<div key={i} className="absolute w-2 h-2 rounded-full animate-spark" style={{ backgroundColor: burst.color, transform: `rotate(${i * 30}deg) translateY(-${burst.size / 2}px)`, animationDelay: `${burst.delay}s`, boxShadow: `0 0 6px ${burst.color}, 0 0 12px ${burst.color}` }} />))}</div>))}<style>{`@keyframes firework { 0% { transform: scale(0); opacity: 0; } 50% { transform: scale(1); opacity: 1; } 100% { transform: scale(1.5); opacity: 0; } } @keyframes spark { 0% { opacity: 1; } 100% { opacity: 0; } } .animate-firework { animation: firework 1.5s ease-out forwards; } .animate-spark { animation: spark 1s ease-out forwards; }`}</style></div>);
   };
 
-  const FallingStars = () => {
-    const [stars, setStars] = useState([]);
-    useEffect(() => { setStars(Array.from({ length: 30 }, (_, i) => ({ id: i, left: Math.random() * 100, delay: Math.random() * 3, duration: 2 + Math.random() * 2, size: 10 + Math.random() * 20 }))); }, []);
-    return (<div className="absolute inset-0 pointer-events-none overflow-hidden">{stars.map(star => (<div key={star.id} className="absolute animate-fall" style={{ left: `${star.left}%`, animationDelay: `${star.delay}s`, animationDuration: `${star.duration}s`, top: '-50px' }}><Star size={star.size} className="text-yellow-300 fill-yellow-300 drop-shadow-lg" style={{ filter: 'drop-shadow(0 0 8px rgba(253, 224, 71, 0.8))' }} /></div>))}<style>{`@keyframes fall { 0% { transform: translateY(-50px) rotate(0deg); opacity: 1; } 100% { transform: translateY(100vh) rotate(360deg); opacity: 0; } } .animate-fall { animation: fall linear forwards; }`}</style></div>);
-  };
+  // FallingStars - uses useRef to store stars data so it never changes, even on re-render
+  const FallingStars = React.memo(({ slideKey }) => {
+    // Use useRef to store stars data ONCE and never regenerate
+    const starsRef = useRef(null);
+    if (starsRef.current === null) {
+      starsRef.current = Array.from({ length: 30 }, (_, i) => ({
+        id: i,
+        left: Math.random() * 100,
+        delay: Math.random() * 3,
+        duration: 2 + Math.random() * 2,
+        size: 10 + Math.random() * 20
+      }));
+    }
+    const stars = starsRef.current;
+
+    return (
+      <div className="absolute inset-0 pointer-events-none overflow-hidden">
+        {stars.map(star => (
+          <div
+            key={star.id}
+            className="absolute animate-fall-star"
+            style={{
+              left: `${star.left}%`,
+              animationDelay: `${star.delay}s`,
+              animationDuration: `${star.duration}s`,
+              top: '-50px'
+            }}
+          >
+            <Star size={star.size} className="text-yellow-300 fill-yellow-300 drop-shadow-lg" style={{ filter: 'drop-shadow(0 0 8px rgba(253, 224, 71, 0.8))' }} />
+          </div>
+        ))}
+        <style>{`
+          @keyframes fall-star {
+            0% { transform: translateY(-50px) rotate(0deg); opacity: 1; }
+            100% { transform: translateY(100vh) rotate(360deg); opacity: 0; }
+          }
+          .animate-fall-star { animation: fall-star linear forwards; }
+        `}</style>
+      </div>
+    );
+  });
 
   const FloatingSparkles = () => {
     const [sparkles, setSparkles] = useState([]);
@@ -1157,6 +1864,27 @@ export default function App() {
       : titleLength > 12
         ? 'text-4xl sm:text-5xl md:text-6xl'
         : 'text-5xl sm:text-6xl md:text-7xl';
+
+    // For Safari: use a simple pulsing text glow instead of animated rainbow background
+    if (isSafari) {
+      return (
+        <div className="relative inline-block">
+          <h1
+            className={`relative ${sizeClass} font-black text-white tracking-tight leading-tight break-words max-w-full animate-text-glow-safari`}
+            style={{ textShadow: '0 0 30px rgba(139, 92, 246, 0.8), 0 0 60px rgba(236, 72, 153, 0.6), 0 0 90px rgba(139, 92, 246, 0.4)' }}
+          >
+            {children}
+          </h1>
+          <style>{`
+            @keyframes text-glow-safari {
+              0%, 100% { text-shadow: 0 0 30px rgba(139, 92, 246, 0.8), 0 0 60px rgba(236, 72, 153, 0.6), 0 0 90px rgba(139, 92, 246, 0.4); }
+              50% { text-shadow: 0 0 40px rgba(236, 72, 153, 0.9), 0 0 80px rgba(139, 92, 246, 0.7), 0 0 120px rgba(236, 72, 153, 0.5); }
+            }
+            .animate-text-glow-safari { animation: text-glow-safari 3s ease-in-out infinite; }
+          `}</style>
+        </div>
+      );
+    }
 
     // Use white aura when cover image is present, rainbow otherwise
     const auraStyle = hasCoverImage
@@ -1330,6 +2058,9 @@ export default function App() {
   // Detect Safari/iOS for performance optimizations
   const isSafari = typeof navigator !== 'undefined' && (/^((?!chrome|android).)*safari/i.test(navigator.userAgent) || /iPad|iPhone|iPod/.test(navigator.userAgent));
 
+  // No color filter needed - we'll match Chrome's look with proper noise overlay instead
+  const safariColorBoostStyle = {};
+
   // Persistent animation time reference - ensures animations don't restart
   const auraAnimationStartTime = useRef(Date.now());
 
@@ -1365,6 +2096,19 @@ export default function App() {
     const blobSafari2Delay = -(elapsedSeconds % 35);
     const blobSafari3Delay = -(elapsedSeconds % 32);
 
+    // Mood-specific aura settings for premium look
+    const moodAuraConfig = {
+      midnight: { opacity1: 0.6, opacity2: 0.5, opacity3: 0.4, size1: '[38rem]', size2: '[32rem]', size3: '[26rem]', blur: 'blur-[80px]' },
+      moonlight: { opacity1: 0.5, opacity2: 0.45, opacity3: 0.35, size1: '[36rem]', size2: '[30rem]', size3: '[24rem]', blur: 'blur-[70px]' },
+      twilight: { opacity1: 0.65, opacity2: 0.55, opacity3: 0.45, size1: '[40rem]', size2: '[34rem]', size3: '[28rem]', blur: 'blur-[80px]' },
+      crimson: { opacity1: 0.6, opacity2: 0.5, opacity3: 0.4, size1: '[38rem]', size2: '[32rem]', size3: '[26rem]', blur: 'blur-[75px]' },
+      bronzed: { opacity1: 0.55, opacity2: 0.5, opacity3: 0.4, size1: '[36rem]', size2: '[30rem]', size3: '[24rem]', blur: 'blur-[70px]' },
+      forest: { opacity1: 0.55, opacity2: 0.5, opacity3: 0.4, size1: '[36rem]', size2: '[30rem]', size3: '[24rem]', blur: 'blur-[70px]' },
+      ocean: { opacity1: 0.6, opacity2: 0.5, opacity3: 0.4, size1: '[38rem]', size2: '[32rem]', size3: '[26rem]', blur: 'blur-[75px]' },
+      aurora: { opacity1: 0.7, opacity2: 0.6, opacity3: 0.5, size1: '[42rem]', size2: '[36rem]', size3: '[30rem]', blur: 'blur-[85px]' },
+    };
+    const auraConfig = moodAuraConfig[moodId] || moodAuraConfig.twilight;
+
     // Safari/iOS optimized version - no blur, simpler animations, increased size and opacity
     if (isSafari) {
       return (
@@ -1373,10 +2117,11 @@ export default function App() {
           <div className="fixed inset-0 overflow-hidden" key="aura-container-safari">
             <div
               key="blob-safari-1"
-              className="absolute w-96 sm:w-[28rem] h-96 sm:h-[28rem] rounded-full opacity-50"
+              className={`absolute w-[32rem] sm:w-${auraConfig.size1} h-[32rem] sm:h-${auraConfig.size1} rounded-full`}
               style={{
                 ...positions.blob1,
-                background: `radial-gradient(circle, ${color1} 0%, ${color1}80 30%, transparent 70%)`,
+                background: `radial-gradient(circle, ${color1} 0%, ${color1}90 25%, ${color1}40 50%, transparent 70%)`,
+                opacity: auraConfig.opacity1,
                 willChange: 'transform',
                 animation: `blob-safari-1 30s ease-in-out infinite`,
                 animationDelay: `${blobSafari1Delay}s`,
@@ -1384,44 +2129,48 @@ export default function App() {
             />
             <div
               key="blob-safari-2"
-              className="absolute w-80 sm:w-96 h-80 sm:h-96 rounded-full opacity-50"
+              className={`absolute w-[28rem] sm:w-${auraConfig.size2} h-[28rem] sm:h-${auraConfig.size2} rounded-full`}
               style={{
                 ...positions.blob2,
-                background: `radial-gradient(circle, ${color2} 0%, ${color2}80 30%, transparent 70%)`,
+                background: `radial-gradient(circle, ${color2} 0%, ${color2}90 25%, ${color2}40 50%, transparent 70%)`,
+                opacity: auraConfig.opacity2,
                 willChange: 'transform',
                 animation: `blob-safari-2 35s ease-in-out infinite`,
                 animationDelay: `${blobSafari2Delay}s`,
               }}
             />
-            {isRainbow && (
-              <div
-                key="blob-safari-3"
-                className="absolute w-72 sm:w-80 h-72 sm:h-80 rounded-full opacity-45"
-                style={{
-                  ...positions.blob3,
-                  background: 'radial-gradient(circle, #00ff88 0%, #ff8c0080 30%, transparent 70%)',
-                  willChange: 'transform',
-                  animation: `blob-safari-3 32s ease-in-out infinite`,
-                  animationDelay: `${blobSafari3Delay}s`,
-                }}
-              />
-            )}
+            {/* Third blob for all moods - adds depth */}
+            <div
+              key="blob-safari-3"
+              className={`absolute w-[24rem] sm:w-${auraConfig.size3} h-[24rem] sm:h-${auraConfig.size3} rounded-full`}
+              style={{
+                ...positions.blob3,
+                background: isRainbow
+                  ? 'radial-gradient(circle, #00ff88 0%, #00ff8890 25%, #00ff8840 50%, transparent 70%)'
+                  : `radial-gradient(circle, ${color1}cc 0%, ${color2}80 30%, transparent 65%)`,
+                opacity: auraConfig.opacity3,
+                willChange: 'transform',
+                animation: `blob-safari-3 32s ease-in-out infinite`,
+                animationDelay: `${blobSafari3Delay}s`,
+              }}
+            />
           </div>
         </>
       );
     }
 
-    // Chrome/Firefox version - full effects with increased size
+    // Chrome/Firefox version - full effects with premium large auras
     return (
       <>
         <div className="fixed inset-0 transition-all duration-1000 ease-in-out" style={{ background: `linear-gradient(135deg, ${bgColors[0]} 0%, ${bgColors[1]} 50%, ${bgColors[2]} 100%)` }} />
         <div className="fixed inset-0 overflow-hidden" key="aura-container-chrome">
           <div
             key="blob-chrome-1"
-            className="absolute w-96 sm:w-[28rem] h-96 sm:h-[28rem] rounded-full mix-blend-screen filter blur-3xl opacity-70"
+            className={`absolute w-[32rem] sm:w-${auraConfig.size1} h-[32rem] sm:h-${auraConfig.size1} rounded-full mix-blend-screen filter ${auraConfig.blur}`}
             style={{
               ...positions.blob1,
               background: `linear-gradient(135deg, ${color1} 0%, ${color2} 100%)`,
+              opacity: auraConfig.opacity1,
               willChange: 'transform',
               animation: `blob1 12s ease-in-out infinite`,
               animationDelay: `${blob1Delay}s`,
@@ -1429,28 +2178,31 @@ export default function App() {
           />
           <div
             key="blob-chrome-2"
-            className="absolute w-80 sm:w-96 h-80 sm:h-96 rounded-full mix-blend-screen filter blur-3xl opacity-70"
+            className={`absolute w-[28rem] sm:w-${auraConfig.size2} h-[28rem] sm:h-${auraConfig.size2} rounded-full mix-blend-screen filter ${auraConfig.blur}`}
             style={{
               ...positions.blob2,
               background: `linear-gradient(135deg, ${color3} 0%, ${color4} 100%)`,
+              opacity: auraConfig.opacity2,
               willChange: 'transform',
               animation: `blob2 15s ease-in-out infinite`,
               animationDelay: `${blob2Delay}s`,
             }}
           />
-          {isRainbow && (
-            <div
-              key="blob-chrome-3"
-              className="absolute w-72 sm:w-80 h-72 sm:h-80 rounded-full mix-blend-screen filter blur-3xl opacity-60"
-              style={{
-                ...positions.blob3,
-                background: 'linear-gradient(135deg, #00ff88 0%, #ff8c00 100%)',
-                willChange: 'transform',
-                animation: `blob3 13s ease-in-out infinite`,
-                animationDelay: `${blob3Delay}s`,
-              }}
-            />
-          )}
+          {/* Third blob for all moods - adds premium depth */}
+          <div
+            key="blob-chrome-3"
+            className={`absolute w-[24rem] sm:w-${auraConfig.size3} h-[24rem] sm:h-${auraConfig.size3} rounded-full mix-blend-screen filter ${auraConfig.blur}`}
+            style={{
+              ...positions.blob3,
+              background: isRainbow
+                ? 'linear-gradient(135deg, #00ff88 0%, #ff8c00 100%)'
+                : `linear-gradient(135deg, ${color1}dd 0%, ${color2}bb 100%)`,
+              opacity: auraConfig.opacity3,
+              willChange: 'transform',
+              animation: `blob3 13s ease-in-out infinite`,
+              animationDelay: `${blob3Delay}s`,
+            }}
+          />
         </div>
       </>
     );
@@ -1463,35 +2215,8 @@ export default function App() {
   };
 
   const NoiseOverlay = () => {
-    // Safari/mobile: Use lightweight CSS-based grain for visual depth
-    // Chrome: High-quality SVG noise filter
-    if (isSafari) {
-      // Mobile-optimized grain using CSS gradient technique - performs well, adds texture
-      return (
-        <>
-          {/* Fine grain layer */}
-          <div className="fixed inset-0 opacity-[0.15] pointer-events-none z-[1]"
-            style={{
-              backgroundImage: `url("data:image/svg+xml,%3Csvg viewBox='0 0 400 400' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E")`,
-              backgroundSize: '150px 150px'
-            }}
-          />
-          {/* Subtle vignette for depth */}
-          <div className="fixed inset-0 pointer-events-none z-[2]"
-            style={{
-              background: 'radial-gradient(ellipse at center, transparent 40%, rgba(0,0,0,0.3) 100%)'
-            }}
-          />
-          {/* Soft inner glow */}
-          <div className="fixed inset-0 pointer-events-none z-[1] opacity-30"
-            style={{
-              background: 'radial-gradient(ellipse at 50% 30%, rgba(255,255,255,0.08) 0%, transparent 50%)'
-            }}
-          />
-        </>
-      );
-    }
-    // Chrome only - high-quality noise
+    // Use the EXACT same high-quality SVG noise for both Chrome and Safari
+    // The white/bright noise grain is what makes colors look premium
     return (
       <div className="fixed inset-0 opacity-[0.25] pointer-events-none" style={{ backgroundImage: 'url("data:image/svg+xml,%3Csvg viewBox=\'0 0 200 200\' xmlns=\'http://www.w3.org/2000/svg\'%3E%3Cfilter id=\'noiseFilter\'%3E%3CfeTurbulence type=\'fractalNoise\' baseFrequency=\'2.5\' numOctaves=\'3\' stitchTiles=\'stitch\'/%3E%3C/filter%3E%3Crect width=\'100%25\' height=\'100%25\' filter=\'url(%23noiseFilter)\'/%3E%3C/svg%3E")', backgroundSize: '200px 200px' }} />
     );
@@ -1621,7 +2346,7 @@ export default function App() {
     ];
 
     return (
-      <div className="min-h-screen relative overflow-hidden">
+      <div className="min-h-screen relative overflow-hidden" style={safariColorBoostStyle}>
         <DynamicBackground moodId="twilight" />
         <NoiseOverlay forceShow={true} />
 
@@ -1662,7 +2387,7 @@ export default function App() {
 
               {/* Wrapped Card - Active Product */}
               <div
-                onClick={() => setStep('input')}
+                onClick={startCreating}
                 className="group relative rounded-3xl p-6 sm:p-8 cursor-pointer transition-all duration-500 hover:scale-[1.02] overflow-hidden animate-fade-in-up"
                 style={{ animationDelay: '0.6s' }}
               >
@@ -1973,7 +2698,7 @@ export default function App() {
   // Loading screen when fetching a shared wrap
   if (isLoading) {
     return (
-      <div className="min-h-screen relative flex items-center justify-center">
+      <div className="min-h-screen relative flex items-center justify-center" style={safariColorBoostStyle}>
         <DynamicBackground moodId="twilight" />
         <NoiseOverlay />
         <div className="relative z-10 text-center">
@@ -1987,7 +2712,7 @@ export default function App() {
   // Error screen when wrap not found
   if (loadError) {
     return (
-      <div className="min-h-screen relative flex items-center justify-center">
+      <div className="min-h-screen relative flex items-center justify-center" style={safariColorBoostStyle}>
         <DynamicBackground moodId="twilight" />
         <NoiseOverlay />
         <div className="relative z-10 text-center max-w-md mx-auto px-6">
@@ -2015,7 +2740,7 @@ export default function App() {
   // Input/builder page
   if (step === 'input') {
     return (
-      <div className="min-h-screen relative transition-all duration-1000">
+      <div className="min-h-screen relative transition-all duration-1000" style={safariColorBoostStyle}>
         <DynamicBackground moodId={selectedMood} /><NoiseOverlay />
 
         {/* Mobile depth enhancement - extra layering for Safari/iOS */}
@@ -2075,18 +2800,29 @@ export default function App() {
             onClose={() => setShowTransitionPicker(null)}
           />
         )}
-        {audioRef.current && (<button onClick={toggleMusic} className="fixed top-4 sm:top-6 right-4 sm:right-6 p-2 sm:p-3 bg-white/10 hover:bg-white/20 rounded-full text-white transition-colors backdrop-blur-sm border-2 border-white/20 z-50">{audioPlaying ? <Volume2 size={18} /> : <VolumeX size={18} />}</button>)}
-        
-        {/* Back to home button */}
+        {audioRef.current && (<button onClick={toggleMusic} className="fixed top-4 sm:top-6 right-4 sm:right-6 p-2 sm:p-3 bg-white/10 hover:bg-white/20 hover:scale-110 rounded-full text-white transition-all duration-300 backdrop-blur-sm border-2 border-white/20 z-50 group">{audioPlaying ? <Volume2 size={18} className="group-hover:animate-pulse" /> : <VolumeX size={18} />}</button>)}
+
+        {/* Back to home button - hides on scroll */}
         <button
           onClick={() => setStep('home')}
           disabled={showTransitionPicker !== null}
-          className={`fixed top-4 sm:top-6 left-4 sm:left-6 p-3 sm:p-3 bg-white/10 hover:bg-white/20 rounded-full text-white transition-colors backdrop-blur-sm border-2 border-white/20 z-50 flex items-center justify-center
-            ${showTransitionPicker !== null ? 'pointer-events-none opacity-30' : ''}`}
+          className={`fixed top-4 sm:top-6 left-4 sm:left-6 p-3 sm:p-3 bg-white/10 hover:bg-white/20 rounded-full text-white transition-all duration-300 backdrop-blur-sm border-2 border-white/20 z-50 flex items-center justify-center
+            ${showTransitionPicker !== null ? 'pointer-events-none opacity-30' : ''}
+            ${isScrolled ? 'opacity-0 pointer-events-none -translate-y-2' : 'opacity-100 translate-y-0'}`}
         >
           <ArrowLeft size={20} className="sm:w-[18px] sm:h-[18px]" />
         </button>
-        
+
+        {/* Help/Tour button - hides on scroll */}
+        <button
+          onClick={() => setShowOnboarding(true)}
+          className={`fixed top-4 sm:top-6 left-16 sm:left-20 px-3 py-2 sm:py-3 bg-white/10 hover:bg-white/20 rounded-full text-white transition-all duration-300 backdrop-blur-sm border-2 border-white/20 z-50 flex items-center gap-2 text-sm font-medium
+            ${isScrolled ? 'opacity-0 pointer-events-none -translate-y-2' : 'opacity-100 translate-y-0'}`}
+        >
+          <Sparkles size={16} />
+          <span className="hidden sm:inline">Tour</span>
+        </button>
+
         <div className="relative z-10 w-full max-w-4xl mx-auto px-4 sm:px-6 py-8 sm:py-12">
           <div className="backdrop-blur-2xl rounded-3xl border border-white/[0.08] shadow-2xl overflow-hidden relative form-card-glow animate-form-entrance" style={{
             background: `linear-gradient(135deg, ${moods.find(m => m.id === selectedMood)?.bgColors[0] || '#2e1065'}30 0%, ${moods.find(m => m.id === selectedMood)?.bgColors[1] || '#3b0764'}20 50%, ${moods.find(m => m.id === selectedMood)?.bgColors[2] || '#4a044e'}15 100%)`
@@ -2289,13 +3025,18 @@ export default function App() {
           }
           .animate-section-fade-in { animation: section-fade-in 0.5s ease-out forwards; opacity: 0; }
         `}</style>
+
+        {/* Onboarding Slideshow - shows on Tour button click or first visit */}
+        {showOnboarding && (
+          <OnboardingSlideshow onClose={() => setShowOnboarding(false)} />
+        )}
       </div>
     );
   }
 
   // Preview page
   return (
-    <div className="min-h-screen relative overflow-hidden flex items-center justify-center p-3 sm:p-4" onTouchStart={onTouchStart} onTouchMove={onTouchMove} onTouchEnd={onTouchEnd}>
+    <div className="min-h-screen relative overflow-hidden flex items-center justify-center p-3 sm:p-4" style={safariColorBoostStyle} onTouchStart={onTouchStart} onTouchMove={onTouchMove} onTouchEnd={onTouchEnd}>
       <DynamicBackground moodId={selectedMood} /><NoiseOverlay />
       {showConfetti && <Confetti />}
       {activeTransition === 'drumroll' && <DrumrollOverlay count={drumrollCount} fading={drumrollFading} onSkip={nextSlide} />}
@@ -2319,10 +3060,63 @@ export default function App() {
         }} className={`transition-all duration-500 ${getSlideAnimation()} relative cursor-pointer`} style={{ transformStyle: 'preserve-3d', transitionProperty: 'opacity', transitionDuration: '300ms', opacity: (activeTransition === 'drumroll' && !drumrollReveal) ? 0 : 1 }} key={currentSlide}>
             {currentSlideInfo.type === 'title' && (
               <div ref={coverRef} className="relative bg-black/40 backdrop-blur-2xl rounded-3xl text-center shadow-2xl border-2 border-white/30 min-h-[600px] sm:min-h-[700px] flex flex-col items-center justify-center overflow-hidden" onMouseMove={handleCoverMouseMove} onMouseLeave={() => setMousePosition({ x: 50, y: 50 })}>
-                <div className="absolute inset-0 pointer-events-none overflow-hidden rounded-3xl"><div className="absolute inset-0 animate-glass-wave" style={{ background: `radial-gradient(ellipse 60% 40% at 30% 30%, rgba(255,255,255,0.08) 0%, transparent 50%), radial-gradient(ellipse 50% 50% at 70% 70%, rgba(255,255,255,0.06) 0%, transparent 50%)` }} /><div className="absolute w-48 h-48 transition-all duration-300 ease-out" style={{ left: `${mousePosition.x}%`, top: `${mousePosition.y}%`, transform: 'translate(-50%, -50%)', background: 'radial-gradient(circle, rgba(255,255,255,0.15) 0%, rgba(255,255,255,0.05) 40%, transparent 70%)', filter: 'blur(20px)' }} /><div className="absolute inset-0 animate-caustics opacity-30" /></div>
-                {coverImage && (<div className="absolute inset-0 z-0"><img src={coverImage} alt="Cover" className="w-full h-full object-cover opacity-40" /><div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/40 to-black/60" /></div>)}
-                <div className="relative z-10 flex flex-col items-center justify-center px-6 sm:px-8"><div className="text-2xl sm:text-3xl font-black text-white/70 tracking-[0.3em] uppercase mb-4 sm:mb-6 animate-float-gentle mt-8 sm:mt-12">Wrapped</div><div className="mb-6 sm:mb-8"><RainbowTitle hasCoverImage={!!coverImage}>{title}</RainbowTitle></div>{dateRange && <div className="text-lg sm:text-xl font-bold text-white/60 uppercase tracking-[0.2em]">{dateRange}</div>}<div className="mt-8 sm:mt-12 flex items-center gap-2 text-white/40 text-sm"><span className="uppercase tracking-wider">Tap to explore</span><ArrowRight size={16} /></div></div>
-                <style>{`@keyframes glass-wave { 0%, 100% { transform: translateX(-2%) translateY(-2%); } 25% { transform: translateX(2%) translateY(1%); } 50% { transform: translateX(-1%) translateY(2%); } 75% { transform: translateX(1%) translateY(-1%); } } @keyframes caustics { 0%, 100% { background: radial-gradient(ellipse 80% 60% at 20% 40%, rgba(255,255,255,0.1) 0%, transparent 40%), radial-gradient(ellipse 60% 80% at 80% 60%, rgba(255,255,255,0.08) 0%, transparent 40%); } 33% { background: radial-gradient(ellipse 70% 50% at 60% 30%, rgba(255,255,255,0.12) 0%, transparent 40%), radial-gradient(ellipse 50% 70% at 40% 70%, rgba(255,255,255,0.06) 0%, transparent 40%); } 66% { background: radial-gradient(ellipse 90% 40% at 40% 60%, rgba(255,255,255,0.08) 0%, transparent 40%), radial-gradient(ellipse 40% 90% at 70% 40%, rgba(255,255,255,0.1) 0%, transparent 40%); } } @keyframes float-gentle { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-5px); } } .animate-glass-wave { animation: glass-wave 8s ease-in-out infinite; } .animate-caustics { animation: caustics 6s ease-in-out infinite; } .animate-float-gentle { animation: float-gentle 4s ease-in-out infinite; }`}</style>
+                {/* Dynamic cinematic background */}
+                <div className="absolute inset-0 pointer-events-none overflow-hidden rounded-3xl">
+                  {/* Animated gradient mesh */}
+                  <div className="absolute inset-0 animate-title-gradient" style={{ background: `radial-gradient(ellipse 80% 50% at 20% 20%, ${moods.find(m => m.id === selectedMood)?.colors[0] || '#7c3aed'}30 0%, transparent 50%), radial-gradient(ellipse 60% 60% at 80% 80%, ${moods.find(m => m.id === selectedMood)?.colors[1] || '#ec4899'}25 0%, transparent 50%)` }} />
+                  {/* Glass wave effect */}
+                  <div className="absolute inset-0 animate-glass-wave" style={{ background: `radial-gradient(ellipse 60% 40% at 30% 30%, rgba(255,255,255,0.08) 0%, transparent 50%), radial-gradient(ellipse 50% 50% at 70% 70%, rgba(255,255,255,0.06) 0%, transparent 50%)` }} />
+                  {/* Spotlight follow cursor */}
+                  <div className="absolute w-64 h-64 transition-all duration-500 ease-out" style={{ left: `${mousePosition.x}%`, top: `${mousePosition.y}%`, transform: 'translate(-50%, -50%)', background: 'radial-gradient(circle, rgba(255,255,255,0.2) 0%, rgba(255,255,255,0.08) 30%, transparent 60%)', filter: 'blur(30px)' }} />
+                  {/* Caustics shimmer */}
+                  <div className="absolute inset-0 animate-caustics opacity-40" />
+                  {/* Particle glow orbs */}
+                  <div className="absolute w-4 h-4 rounded-full bg-white/30 blur-sm animate-particle-1" style={{ top: '20%', left: '15%' }} />
+                  <div className="absolute w-3 h-3 rounded-full bg-white/20 blur-sm animate-particle-2" style={{ top: '70%', right: '20%' }} />
+                  <div className="absolute w-5 h-5 rounded-full bg-white/25 blur-sm animate-particle-3" style={{ bottom: '25%', left: '25%' }} />
+                </div>
+                {coverImage && (<div className="absolute inset-0 z-0"><img src={coverImage} alt="Cover" className="w-full h-full object-cover opacity-40 animate-title-zoom" /><div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/40 to-black/60" /></div>)}
+                <div className="relative z-10 flex flex-col items-center justify-center px-6 sm:px-8">
+                  {/* "Wrapped" label with staggered entrance */}
+                  <div className="text-2xl sm:text-3xl font-black text-white/70 tracking-[0.3em] uppercase mb-4 sm:mb-6 animate-title-label mt-8 sm:mt-12">Wrapped</div>
+                  {/* Main title with dramatic reveal */}
+                  <div className="mb-6 sm:mb-8 animate-title-main"><RainbowTitle hasCoverImage={!!coverImage}>{title}</RainbowTitle></div>
+                  {/* Date with slide-up */}
+                  {dateRange && <div className="text-lg sm:text-xl font-bold text-white/60 uppercase tracking-[0.2em] animate-title-date">{dateRange}</div>}
+                  {/* Call to action with pulse */}
+                  <div className="mt-8 sm:mt-12 flex items-center gap-2 text-white/40 text-sm animate-title-cta">
+                    <span className="uppercase tracking-wider">Tap to explore</span>
+                    <ArrowRight size={16} className="animate-bounce-x" />
+                  </div>
+                </div>
+                <style>{`
+                  @keyframes glass-wave { 0%, 100% { transform: translateX(-2%) translateY(-2%); } 25% { transform: translateX(2%) translateY(1%); } 50% { transform: translateX(-1%) translateY(2%); } 75% { transform: translateX(1%) translateY(-1%); } }
+                  @keyframes caustics { 0%, 100% { background: radial-gradient(ellipse 80% 60% at 20% 40%, rgba(255,255,255,0.1) 0%, transparent 40%), radial-gradient(ellipse 60% 80% at 80% 60%, rgba(255,255,255,0.08) 0%, transparent 40%); } 33% { background: radial-gradient(ellipse 70% 50% at 60% 30%, rgba(255,255,255,0.12) 0%, transparent 40%), radial-gradient(ellipse 50% 70% at 40% 70%, rgba(255,255,255,0.06) 0%, transparent 40%); } 66% { background: radial-gradient(ellipse 90% 40% at 40% 60%, rgba(255,255,255,0.08) 0%, transparent 40%), radial-gradient(ellipse 40% 90% at 70% 40%, rgba(255,255,255,0.1) 0%, transparent 40%); } }
+                  @keyframes float-gentle { 0%, 100% { transform: translateY(0); } 50% { transform: translateY(-5px); } }
+                  @keyframes title-gradient { 0%, 100% { transform: scale(1) rotate(0deg); opacity: 0.8; } 50% { transform: scale(1.1) rotate(2deg); opacity: 1; } }
+                  @keyframes title-zoom { 0% { transform: scale(1.1); } 100% { transform: scale(1); } }
+                  @keyframes title-label { 0% { opacity: 0; transform: translateY(-30px) scale(0.8); letter-spacing: 0.1em; } 100% { opacity: 0.7; transform: translateY(0) scale(1); letter-spacing: 0.3em; } }
+                  @keyframes title-main { 0% { opacity: 0; transform: scale(0.7) translateY(20px); filter: blur(10px); } 50% { filter: blur(0); } 100% { opacity: 1; transform: scale(1) translateY(0); filter: blur(0); } }
+                  @keyframes title-date { 0% { opacity: 0; transform: translateY(30px); } 100% { opacity: 0.6; transform: translateY(0); } }
+                  @keyframes title-cta { 0% { opacity: 0; } 100% { opacity: 1; } }
+                  @keyframes bounce-x { 0%, 100% { transform: translateX(0); } 50% { transform: translateX(5px); } }
+                  @keyframes particle-1 { 0%, 100% { transform: translate(0, 0) scale(1); opacity: 0.3; } 50% { transform: translate(20px, -30px) scale(1.5); opacity: 0.6; } }
+                  @keyframes particle-2 { 0%, 100% { transform: translate(0, 0) scale(1); opacity: 0.2; } 50% { transform: translate(-30px, 20px) scale(1.3); opacity: 0.5; } }
+                  @keyframes particle-3 { 0%, 100% { transform: translate(0, 0) scale(1); opacity: 0.25; } 50% { transform: translate(15px, 25px) scale(1.4); opacity: 0.55; } }
+                  .animate-glass-wave { animation: glass-wave 8s ease-in-out infinite; }
+                  .animate-caustics { animation: caustics 6s ease-in-out infinite; }
+                  .animate-float-gentle { animation: float-gentle 4s ease-in-out infinite; }
+                  .animate-title-gradient { animation: title-gradient 10s ease-in-out infinite; }
+                  .animate-title-zoom { animation: title-zoom 1.5s ease-out forwards; }
+                  .animate-title-label { animation: title-label 0.8s cubic-bezier(0.16, 1, 0.3, 1) 0.1s forwards; opacity: 0; }
+                  .animate-title-main { animation: title-main 1s cubic-bezier(0.16, 1, 0.3, 1) 0.3s forwards; opacity: 0; }
+                  .animate-title-date { animation: title-date 0.7s ease-out 0.6s forwards; opacity: 0; }
+                  .animate-title-cta { animation: title-cta 0.5s ease-out 1s forwards; opacity: 0; }
+                  .animate-bounce-x { animation: bounce-x 1.5s ease-in-out infinite; }
+                  .animate-particle-1 { animation: particle-1 8s ease-in-out infinite; }
+                  .animate-particle-2 { animation: particle-2 10s ease-in-out infinite 1s; }
+                  .animate-particle-3 { animation: particle-3 9s ease-in-out infinite 2s; }
+                `}</style>
               </div>
             )}
 
@@ -2355,7 +3149,7 @@ export default function App() {
                 <div className={`bg-black/40 backdrop-blur-2xl rounded-3xl p-6 sm:p-8 text-center shadow-2xl border-2 min-h-[600px] sm:min-h-[650px] flex flex-col justify-between relative ${stat.isHighlight ? 'border-yellow-400/60' : 'border-white/30'} ${activeTransition === 'drumroll' ? 'drumroll-glow' : ''} ${activeTransition === 'impact' ? 'animate-impact-slam' : ''}`} style={frameGlowStyle}>
                   {activeTransition === 'impact' && <ImpactDots />}
                   {showDrumrollGlitter && <DrumrollGlitter />}
-                  {stat.isHighlight && isFirstView && <FallingStars key={`stars-${currentSlideInfo.index}`} />}
+                  {stat.isHighlight && !viewedHighlights.has(currentSlideInfo.index) && <FallingStars key={`stars-first-view-${currentSlideInfo.index}`} slideKey={currentSlideInfo.index} />}
                   {!stat.isHighlight && !isLongText && !stat.image && getDecorativeShapes(currentSlideInfo.index)}
                   <div className={`flex-1 flex flex-col justify-center space-y-4 sm:space-y-6 relative z-10 ${activeTransition === 'impact' ? 'animate-impact-text' : ''}`}>{stat.image && <div className="mb-4"><img src={stat.image} alt={stat.label} className="w-full max-w-sm mx-auto h-48 sm:h-64 object-cover rounded-2xl shadow-2xl border-2 border-white/20" /></div>}<div className={`text-white/70 text-lg sm:text-2xl font-bold uppercase tracking-wider ${labelAnim} ${drumrollLabelAnim}`}>{stat.label}</div><div className={`text-white ${valueAnim} ${drumrollValueAnim}`}>{formatValue(stat.value)}</div>{stat.note && <div className={`text-white/50 text-base sm:text-lg italic mt-4 max-w-md mx-auto px-2 ${noteAnim} ${drumrollNoteAnim}`}>({stat.note})</div>}</div>
                   <div className="text-white/30 font-black text-sm uppercase tracking-widest mt-4 relative z-10">{dateRange || 'Wrapped'}</div>
@@ -2628,6 +3422,11 @@ export default function App() {
       {/* Share Modal - shows after saving wrap */}
       {shareModalOpen && shareUrl && (
         <ShareModal url={shareUrl} onClose={() => setShareModalOpen(false)} />
+      )}
+
+      {/* Onboarding Slideshow - shows on first visit */}
+      {showOnboarding && (
+        <OnboardingSlideshow onClose={() => setShowOnboarding(false)} />
       )}
     </div>
   );
