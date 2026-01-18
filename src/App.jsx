@@ -71,6 +71,12 @@ export default function App() {
   const [isScrolled, setIsScrolled] = useState(false);
   const scrollTimeoutRef = useRef(null);
 
+  // Track if homepage animations have already played this session
+  const homeAnimationsPlayed = useRef(false);
+
+  // Track if confetti has already played for current wrap view
+  const confettiPlayed = useRef(false);
+
   const coverRef = useRef(null);
   const audioRef = useRef(null);
   const drumrollIntervalRef = useRef(null);
@@ -413,7 +419,9 @@ export default function App() {
     setAttemptedSubmit(true);
     if (!validateForm()) return;
     setStep('preview'); setCurrentSlide(0); setViewedHighlights(new Set()); setViewedBadges(new Set());
-    setViewedReflection(false); setShowConfetti(false); setAuraOffset(0); setTextPlayedSlides(new Set()); setSlideTextTheme({});
+    setViewedReflection(false); setShowConfetti(false); setTextPlayedSlides(new Set()); setSlideTextTheme({});
+    starsShownForSlide.current = null; setStarsVisible(false); // Reset falling stars
+    confettiPlayed.current = false; // Reset confetti for new wrap preview
   };
 
   const editWrapped = () => { setStep('input'); setShowConfetti(false); setAttemptedSubmit(false); setValidationErrors({}); };
@@ -433,9 +441,10 @@ export default function App() {
     setReflection(''); setSelectedMusic(''); setStep('input'); setCurrentSlide(0);
     setViewedHighlights(new Set()); setViewedBadges(new Set()); setViewedReflection(false);
     setShowConfetti(false); setAttemptedSubmit(false); setValidationErrors({}); setSelectedTemplate(null);
-    setTransitions({}); setCustomMusicFile(null);
+    setTransitions({}); setCustomMusicFile(null); starsShownForSlide.current = null; setStarsVisible(false);
     if (audioRef.current) { audioRef.current.pause(); audioRef.current.src = ''; audioRef.current = null; }
     setAudioPlaying(false);
+    confettiPlayed.current = false; // Reset confetti tracker
     // Reset shareable state
     setWrapId(null); setIsViewMode(false); setShareUrl(null); setShareModalOpen(false);
     // Navigate to home and clear URL
@@ -632,6 +641,8 @@ export default function App() {
       setDrumrollCount(3);
       setDrumrollReveal(false);
       setShowDrumrollGlitter(false);
+      // Store destination so skipDrumroll can use it
+      drumrollDestinationRef.current = destSlide;
       // Clear any previous drumroll timers
       if (drumrollIntervalRef.current) clearInterval(drumrollIntervalRef.current);
       drumrollTimeoutsRef.current.forEach(t => clearTimeout(t));
@@ -642,18 +653,18 @@ export default function App() {
           if (prev <= 1) {
             clearInterval(countdown);
             drumrollIntervalRef.current = null;
+            drumrollDestinationRef.current = null; // Clear - callback will handle it
             callback();
             setDrumrollReveal(true);
             setDrumrollFading(true);
             setShowDrumrollGlitter(true);
+            setActiveTransition(null); // Clear immediately so user can navigate
             const glitterTimeout = setTimeout(() => setShowDrumrollGlitter(false), 5500);
             drumrollTimeoutsRef.current.push(glitterTimeout);
-            const clearTimeoutMs = 600 + 5500;
             const clearTimeout2 = setTimeout(() => {
               setDrumrollFading(false);
-              setActiveTransition(null);
               setDrumrollReveal(false);
-            }, clearTimeoutMs);
+            }, 6100);
             drumrollTimeoutsRef.current.push(clearTimeout2);
             return 0;
           }
@@ -681,7 +692,10 @@ export default function App() {
     }
   }, []);
 
-  // Clean function to skip drumroll immediately
+  // Track the pending drumroll destination slide
+  const drumrollDestinationRef = useRef(null);
+
+  // Clean function to skip drumroll immediately - reveals the slide
   const skipDrumroll = useCallback(() => {
     if (drumrollIntervalRef.current) {
       clearInterval(drumrollIntervalRef.current);
@@ -689,21 +703,27 @@ export default function App() {
     }
     drumrollTimeoutsRef.current.forEach(t => clearTimeout(t));
     drumrollTimeoutsRef.current = [];
-    setActiveTransition(null);
+    // If we have a pending destination, go there now
+    if (drumrollDestinationRef.current !== null) {
+      setCurrentSlide(drumrollDestinationRef.current);
+      drumrollDestinationRef.current = null;
+    }
     setDrumrollFading(false);
-    setDrumrollReveal(false);
     setDrumrollCount(0);
-    setShowDrumrollGlitter(false);
+    setActiveTransition(null);
+    setDrumrollReveal(true);
+    setShowDrumrollGlitter(true);
+    setTimeout(() => setShowDrumrollGlitter(false), 500);
   }, []);
 
   const nextSlide = useCallback(() => {
-    // Allow navigation during drumroll transition
-    const canNavigate = !isAnimating || activeTransition === 'drumroll';
+    // If drumroll is active, skip it (reveal slide) instead of navigating
+    if (activeTransition === 'drumroll') {
+      skipDrumroll();
+      return; // Don't navigate, just reveal current slide
+    }
+    const canNavigate = !isAnimating;
     if (currentSlide < totalSlides - 1 && canNavigate) {
-      // If skipping during drumroll, clean up immediately
-      if (activeTransition === 'drumroll') {
-        skipDrumroll();
-      }
       // Clear drumroll sparkles when moving to next slide
       setShowDrumrollGlitter(false);
       const destinationSlide = currentSlide + 1;
@@ -720,12 +740,20 @@ export default function App() {
           // keep isAnimating as false so user can navigate while drumroll is running
           setIsAnimating(false);
           setDrumrollReveal(true);
-          if (destinationSlide === totalSlides - 1) setShowConfetti(true);
+          // Only show confetti once per wrap view session
+          if (destinationSlide === totalSlides - 1 && !confettiPlayed.current) {
+            setShowConfetti(true);
+            confettiPlayed.current = true;
+          }
         } else {
           setTimeout(() => {
             setCurrentSlide(destinationSlide);
             setIsAnimating(false);
-            if (destinationSlide === totalSlides - 1) setShowConfetti(true);
+            // Only show confetti once per wrap view session
+            if (destinationSlide === totalSlides - 1 && !confettiPlayed.current) {
+              setShowConfetti(true);
+              confettiPlayed.current = true;
+            }
           }, (transitionData?.type || transitionData) === 'default' || !transitionData ? 400 : 100);
         }
       }, destinationSlide);
@@ -733,14 +761,12 @@ export default function App() {
   }, [currentSlide, totalSlides, isAnimating, activeTransition, transitions, executeTransition, skipDrumroll]);
 
   const prevSlide = useCallback(() => {
-    // Allow navigation during drumroll transition
-    const canNavigate = !isAnimating || activeTransition === 'drumroll';
-    if (currentSlide > 0 && canNavigate) {
-      // If skipping during drumroll, clean up immediately
-      if (activeTransition === 'drumroll') {
-        skipDrumroll();
-      }
-      // Clear drumroll sparkles when moving to prev slide
+    // If drumroll is active, skip it (reveal slide) instead of navigating
+    if (activeTransition === 'drumroll') {
+      skipDrumroll();
+      return; // Don't navigate, just reveal current slide
+    }
+    if (currentSlide > 0 && !isAnimating) {
       setShowDrumrollGlitter(false);
       setDrumrollReveal(false);
       setSlideDirection('prev'); setIsAnimating(true); setShowConfetti(false);
@@ -821,15 +847,34 @@ export default function App() {
 
   const currentSlideInfo = getSlideType(currentSlide);
 
+  // Trigger stars for highlight slides - uses ref to prevent re-triggering
+  useEffect(() => {
+    if (currentSlideInfo.type !== 'stat') {
+      setStarsVisible(false);
+      return;
+    }
+    const statIndex = currentSlideInfo.index;
+    const stat = validStats[statIndex];
+    if (stat?.isHighlight && starsShownForSlide.current !== statIndex) {
+      starsShownForSlide.current = statIndex;
+      starsDataRef.current = Array.from({ length: 30 }, (_, i) => ({
+        id: i, left: Math.random() * 100, delay: Math.random() * 3,
+        duration: 2 + Math.random() * 2, size: 10 + Math.random() * 20
+      }));
+      setStarsVisible(true);
+      setTimeout(() => setStarsVisible(false), 8000);
+    } else if (!stat?.isHighlight) {
+      setStarsVisible(false);
+    }
+  }, [currentSlide]);
+
   useEffect(() => {
     if (currentSlideInfo.type === 'stat') {
       const statIndex = currentSlideInfo.index;
       if (validStats[statIndex]?.isHighlight && !viewedHighlights.has(statIndex)) {
-        // Delay marking as "viewed" so we don't replay on re-visit
-        // Animation runs for ~5 seconds max (3s delay + 2-4s duration)
         const markTimeout = setTimeout(() => {
           setViewedHighlights(prev => new Set([...prev, statIndex]));
-        }, 8000);  // Allow 8 seconds for falling stars animation to complete fully
+        }, 8000);
         return () => clearTimeout(markTimeout);
       }
     }
@@ -1302,6 +1347,44 @@ export default function App() {
       onClose();
     };
 
+    // Handle keyboard navigation
+    useEffect(() => {
+      const handleKeyDown = (e) => {
+        if (e.key === 'ArrowRight' || e.key === ' ') {
+          e.preventDefault();
+          nextOnboardingSlide();
+        } else if (e.key === 'ArrowLeft') {
+          e.preventDefault();
+          if (onboardingSlide > 0) {
+            prevOnboardingSlide();
+          }
+        } else if (e.key === 'Escape') {
+          handleClose();
+        }
+      };
+      window.addEventListener('keydown', handleKeyDown);
+      return () => window.removeEventListener('keydown', handleKeyDown);
+    }, [onboardingSlide]);
+
+    // Handle tap on left/right side of screen
+    const handleTapNavigation = (e) => {
+      // Don't navigate if clicking on buttons or interactive elements
+      if (e.target.closest('button')) return;
+
+      const rect = e.currentTarget.getBoundingClientRect();
+      const clickX = e.clientX - rect.left;
+      const width = rect.width;
+
+      // Left third = previous, right two-thirds = next
+      if (clickX < width * 0.33) {
+        if (onboardingSlide > 0) {
+          prevOnboardingSlide();
+        }
+      } else {
+        nextOnboardingSlide();
+      }
+    };
+
     const slide = slides[onboardingSlide];
 
     // Visual content for each slide type
@@ -1397,10 +1480,10 @@ export default function App() {
                   <Lightbulb size={14} /> Personal Reflection
                 </div>
                 <p className="text-white/90 text-sm italic leading-relaxed">
-                  "This year taught me that growth isn't always linear, but every step forward counts..."
+                  "This month taught me that growth isn't always linear, but every step forward counts..."
                 </p>
                 <div className="mt-3 flex justify-end">
-                  <div className="text-white/40 text-xs">— Your thoughts</div>
+                  <div className="text-white/40 text-xs">—January Wrap </div>
                 </div>
               </div>
             </div>
@@ -1508,7 +1591,8 @@ export default function App() {
       <div className={`fixed inset-0 z-[100] flex items-center justify-center p-4 ${isSafari ? 'bg-black/80' : 'bg-black/80 backdrop-blur-md'}`}>
         {/* Main slideshow container - phone frame style */}
         <div
-          className="relative w-full max-w-sm rounded-3xl border border-white/20 shadow-2xl overflow-hidden"
+          className="relative w-full max-w-sm rounded-3xl border border-white/20 shadow-2xl overflow-hidden cursor-pointer"
+          onClick={handleTapNavigation}
           style={{
             background: isSafari
               ? `linear-gradient(135deg, ${slide.gradient[0]}cc 0%, ${slide.gradient[1] || slide.gradient[0]}cc 100%)`
@@ -1811,47 +1895,18 @@ export default function App() {
     return (<div className="absolute inset-0 pointer-events-none overflow-hidden">{bursts.map(burst => (<div key={burst.id} className="absolute animate-firework" style={{ left: `${burst.x}%`, top: `${burst.y}%`, animationDelay: `${burst.delay}s` }}>{[...Array(12)].map((_, i) => (<div key={i} className="absolute w-2 h-2 rounded-full animate-spark" style={{ backgroundColor: burst.color, transform: `rotate(${i * 30}deg) translateY(-${burst.size / 2}px)`, animationDelay: `${burst.delay}s`, boxShadow: `0 0 6px ${burst.color}, 0 0 12px ${burst.color}` }} />))}</div>))}<style>{`@keyframes firework { 0% { transform: scale(0); opacity: 0; } 50% { transform: scale(1); opacity: 1; } 100% { transform: scale(1.5); opacity: 0; } } @keyframes spark { 0% { opacity: 1; } 100% { opacity: 0; } } .animate-firework { animation: firework 1.5s ease-out forwards; } .animate-spark { animation: spark 1s ease-out forwards; }`}</style></div>);
   };
 
-  // FallingStars - uses useRef to store stars data so it never changes, even on re-render
-  const FallingStars = React.memo(({ slideKey }) => {
-    // Use useRef to store stars data ONCE and never regenerate
-    const starsRef = useRef(null);
-    if (starsRef.current === null) {
-      starsRef.current = Array.from({ length: 30 }, (_, i) => ({
-        id: i,
-        left: Math.random() * 100,
-        delay: Math.random() * 3,
-        duration: 2 + Math.random() * 2,
-        size: 10 + Math.random() * 20
-      }));
-    }
-    const stars = starsRef.current;
+  // Simple stars state - just track if showing and when started
+  const [starsVisible, setStarsVisible] = useState(false);
+  const starsDataRef = useRef(null);
+  const starsShownForSlide = useRef(null);
 
-    return (
-      <div className="absolute inset-0 pointer-events-none overflow-hidden">
-        {stars.map(star => (
-          <div
-            key={star.id}
-            className="absolute animate-fall-star"
-            style={{
-              left: `${star.left}%`,
-              animationDelay: `${star.delay}s`,
-              animationDuration: `${star.duration}s`,
-              top: '-50px'
-            }}
-          >
-            <Star size={star.size} className="text-yellow-300 fill-yellow-300 drop-shadow-lg" style={{ filter: 'drop-shadow(0 0 8px rgba(253, 224, 71, 0.8))' }} />
-          </div>
-        ))}
-        <style>{`
-          @keyframes fall-star {
-            0% { transform: translateY(-50px) rotate(0deg); opacity: 1; }
-            100% { transform: translateY(100vh) rotate(360deg); opacity: 0; }
-          }
-          .animate-fall-star { animation: fall-star linear forwards; }
-        `}</style>
-      </div>
-    );
-  });
+  // Generate stars data once
+  if (!starsDataRef.current) {
+    starsDataRef.current = Array.from({ length: 30 }, (_, i) => ({
+      id: i, left: Math.random() * 100, delay: Math.random() * 3,
+      duration: 2 + Math.random() * 2, size: 10 + Math.random() * 20
+    }));
+  }
 
   const FloatingSparkles = () => {
     const [sparkles, setSparkles] = useState([]);
@@ -1866,7 +1921,14 @@ export default function App() {
 
   const ReflectionGlowRing = ({ isFirstView }) => {
     if (!isFirstView) return null;
-    return (<><div className="absolute inset-0 rounded-3xl overflow-hidden pointer-events-none"><div className="absolute inset-0 animate-reflection-ring"><div className="absolute inset-[-2px] rounded-3xl border-4 border-white/80" style={{ background: 'conic-gradient(from 0deg, transparent 0deg, rgba(255, 255, 255, 0.6) 30deg, rgba(255, 255, 255, 0.9) 60deg, rgba(255, 255, 255, 0.6) 90deg, transparent 120deg)', mask: 'linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0)', maskComposite: 'exclude', WebkitMaskComposite: 'xor', padding: '4px' }} /></div></div><div className="absolute inset-0 rounded-3xl animate-reflection-pulse pointer-events-none" style={{ boxShadow: '0 0 60px rgba(255, 255, 255, 0.4), 0 0 100px rgba(255, 255, 255, 0.2), inset 0 0 60px rgba(255, 255, 255, 0.1)' }} /><style>{`@keyframes reflection-ring { 0% { transform: rotate(0deg); opacity: 1; } 100% { transform: rotate(360deg); opacity: 0; } } @keyframes reflection-pulse { 0% { opacity: 0; } 50% { opacity: 1; } 100% { opacity: 0.5; } } .animate-reflection-ring { animation: reflection-ring 2s ease-out forwards; } .animate-reflection-pulse { animation: reflection-pulse 2s ease-out forwards; }`}</style></>);
+    // Use state to delay rendering until after mount to prevent flash
+    const [isReady, setIsReady] = useState(false);
+    useEffect(() => {
+      const timer = setTimeout(() => setIsReady(true), 50);
+      return () => clearTimeout(timer);
+    }, []);
+    if (!isReady) return null;
+    return (<><div className="absolute inset-0 rounded-3xl overflow-hidden pointer-events-none"><div className="absolute inset-0 animate-reflection-ring"><div className="absolute inset-[-2px] rounded-3xl border-4 border-white/80" style={{ background: 'conic-gradient(from 0deg, transparent 0deg, rgba(255, 255, 255, 0.6) 30deg, rgba(255, 255, 255, 0.9) 60deg, rgba(255, 255, 255, 0.6) 90deg, transparent 120deg)', mask: 'linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0)', maskComposite: 'exclude', WebkitMaskComposite: 'xor', padding: '4px' }} /></div></div><div className="absolute inset-0 rounded-3xl animate-reflection-pulse pointer-events-none" style={{ boxShadow: '0 0 60px rgba(255, 255, 255, 0.4), 0 0 100px rgba(255, 255, 255, 0.2), inset 0 0 60px rgba(255, 255, 255, 0.1)' }} /><style>{`@keyframes reflection-ring { 0% { transform: rotate(0deg); opacity: 0; } 10% { opacity: 1; } 100% { transform: rotate(360deg); opacity: 0; } } @keyframes reflection-pulse { 0% { opacity: 0; } 50% { opacity: 1; } 100% { opacity: 0.5; } } .animate-reflection-ring { animation: reflection-ring 2s ease-out forwards; } .animate-reflection-pulse { animation: reflection-pulse 2s ease-out forwards; }`}</style></>);
   };
 
   const RainbowTitle = ({ children, hasCoverImage = false }) => {
@@ -2341,6 +2403,20 @@ export default function App() {
 
   // Homepage Component
   const HomePage = () => {
+    // Track animations - only animate on first visit or explicit navigation back
+    const shouldAnimate = !homeAnimationsPlayed.current;
+
+    // Mark animations as played after component mounts
+    useEffect(() => {
+      if (!homeAnimationsPlayed.current) {
+        // Small delay to ensure animations complete before marking as played
+        const timer = setTimeout(() => {
+          homeAnimationsPlayed.current = true;
+        }, 1500);
+        return () => clearTimeout(timer);
+      }
+    }, []);
+
     const wrappedFeatures = [
       'Custom stat tracking',
       'Choose your own themes',
@@ -2381,13 +2457,13 @@ export default function App() {
             <div className="relative inline-block mx-auto">
               {/* Glow behind logo */}
               <div className="absolute inset-0 w-20 h-20 sm:w-28 sm:h-28 rounded-full blur-2xl bg-purple-500/30 animate-pulse-slow" />
-              {/* Logo with bounce animation */}
-              <img src="/MyWrap.png" alt="MyWrap" className="relative w-20 h-20 sm:w-28 sm:h-28 object-contain animate-logo-bounce drop-shadow-2xl" />
+              {/* Logo with bounce animation - only on first visit */}
+              <img src="/MyWrap.png" alt="MyWrap" className={`relative w-20 h-20 sm:w-28 sm:h-28 object-contain drop-shadow-2xl ${shouldAnimate ? 'animate-logo-bounce' : ''}`} />
             </div>
-            <p className="text-white/70 text-[10px] sm:text-xs font-medium uppercase tracking-widest mt-1 animate-fade-in-up" style={{ animationDelay: '0.3s' }}>Your moments, wrapped up.</p>
+            <p className={`text-white/70 text-[10px] sm:text-xs font-medium uppercase tracking-widest mt-1 ${shouldAnimate ? 'animate-fade-in-up' : ''}`} style={shouldAnimate ? { animationDelay: '0.3s' } : { opacity: 1 }}>Your moments, wrapped up.</p>
 
             {/* What is a Wrapped? */}
-            <div className="mt-6 flex items-start justify-center gap-1.5 text-white/60 text-sm max-w-md mx-auto animate-fade-in-up" style={{ animationDelay: '0.5s' }}>
+            <div className={`mt-6 flex items-start justify-center gap-1.5 text-white/60 text-sm max-w-md mx-auto ${shouldAnimate ? 'animate-fade-in-up' : ''}`} style={shouldAnimate ? { animationDelay: '0.5s' } : { opacity: 1 }}>
               <p>
                 <span className="text-white/50">Your personalized recap: track your moments, insights, and stats.</span>
               </p>
@@ -2401,8 +2477,8 @@ export default function App() {
               {/* Wrapped Card - Active Product */}
               <div
                 onClick={startCreating}
-                className="group relative rounded-3xl p-6 sm:p-8 cursor-pointer transition-all duration-500 hover:scale-[1.02] overflow-hidden animate-fade-in-up"
-                style={{ animationDelay: '0.6s' }}
+                className={`group relative rounded-3xl p-4 sm:p-6 cursor-pointer transition-all duration-500 hover:scale-[1.02] overflow-hidden ${shouldAnimate ? 'animate-fade-in-up' : ''}`}
+                style={shouldAnimate ? { animationDelay: '0.6s' } : { opacity: 1 }}
               >
                 {/* Card background with layered depth */}
                 <div className="absolute inset-0 bg-gradient-to-br from-white/10 via-white/5 to-transparent backdrop-blur-2xl rounded-3xl border border-white/10 group-hover:border-white/30 transition-all duration-500" />
@@ -2428,37 +2504,37 @@ export default function App() {
                 </div>
 
                 <div className="relative z-10">
-                  <div className="flex items-center gap-3 mb-4">
-                    <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center shadow-lg shadow-purple-500/30 group-hover:shadow-purple-500/50 transition-shadow duration-500">
-                      <Sparkles className="w-6 h-6 text-white" />
+                  <div className="flex items-center gap-3 mb-2 sm:mb-4">
+                    <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-2xl bg-gradient-to-br from-purple-500 to-pink-500 flex items-center justify-center shadow-lg shadow-purple-500/30 group-hover:shadow-purple-500/50 transition-shadow duration-500">
+                      <Sparkles className="w-5 h-5 sm:w-6 sm:h-6 text-white" />
                     </div>
                     <div>
-                      <h2 className="text-2xl sm:text-3xl font-black text-white">My Wrap</h2>
-                      <span className="text-xs font-bold text-green-400 uppercase tracking-wider">Available Now</span>
+                      <h2 className="text-xl sm:text-2xl lg:text-3xl font-black text-white">My Wrap</h2>
+                      <span className="text-[10px] sm:text-xs font-bold text-green-400 uppercase tracking-wider">Available Now</span>
                     </div>
                   </div>
 
-                  <p className="text-white/70 mb-6">Create a custom recap for your trip, fitness achievements, reading list—anything worth sharing.</p>
+                  <p className="text-white/70 mb-3 sm:mb-6 text-sm sm:text-base">Create a custom recap for your trip, fitness achievements, reading list—anything worth sharing.</p>
 
-                  <ul className="space-y-2 mb-6">
+                  <ul className="space-y-1 sm:space-y-2 mb-3 sm:mb-6">
                     {wrappedFeatures.map((feature, i) => (
-                      <li key={i} className="flex items-center gap-2 text-white/80 text-sm">
-                        <Check size={16} className="text-green-400 flex-shrink-0" />
+                      <li key={i} className="flex items-center gap-2 text-white/80 text-xs sm:text-sm">
+                        <Check size={14} className="text-green-400 flex-shrink-0 sm:w-4 sm:h-4" />
                         {feature}
                       </li>
                     ))}
                   </ul>
 
                   {/* CTA Button with soft glow effect */}
-                  <div className="inline-flex items-center gap-2 px-5 py-3 bg-white/10 backdrop-blur-sm rounded-xl text-white font-bold transition-all duration-500 border border-white/20 group-hover:border-white/40 group-hover:bg-white/15 cta-glow">
+                  <div className="inline-flex items-center gap-2 px-4 py-2 sm:px-5 sm:py-3 bg-white/10 backdrop-blur-sm rounded-xl text-white font-bold text-sm sm:text-base transition-all duration-500 border border-white/20 group-hover:border-white/40 group-hover:bg-white/15 cta-glow">
                     <span>Start Creating</span>
-                    <ChevronRight size={20} className="group-hover:translate-x-1 transition-transform duration-300" />
+                    <ChevronRight size={18} className="group-hover:translate-x-1 transition-transform duration-300 sm:w-5 sm:h-5" />
                   </div>
                 </div>
               </div>
 
               {/* Coming Soon Card - Productivity Tracking */}
-              <div className="group relative rounded-3xl p-6 sm:p-8 overflow-hidden animate-fade-in-up" style={{ animationDelay: '0.8s' }}>
+              <div className={`group relative rounded-3xl p-4 sm:p-6 overflow-hidden ${shouldAnimate ? 'animate-fade-in-up' : ''}`} style={shouldAnimate ? { animationDelay: '0.8s' } : { opacity: 1 }}>
                 {/* Card background with layered depth */}
                 <div className="absolute inset-0 bg-gradient-to-br from-white/10 via-white/5 to-transparent backdrop-blur-2xl rounded-3xl border border-white/10 transition-all duration-500" />
                 <div className="absolute inset-[1px] rounded-3xl shadow-[inset_0_1px_1px_rgba(255,255,255,0.1)]" />
@@ -2471,31 +2547,31 @@ export default function App() {
                 </div>
 
                 <div className="relative z-10">
-                  <div className="flex items-center gap-3 mb-4">
-                    <div className="w-12 h-12 rounded-2xl bg-gradient-to-br from-blue-500 to-cyan-500 flex items-center justify-center shadow-lg">
-                      <svg className="w-6 h-6 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <div className="flex items-center gap-3 mb-2 sm:mb-4">
+                    <div className="w-10 h-10 sm:w-12 sm:h-12 rounded-2xl bg-gradient-to-br from-blue-500 to-cyan-500 flex items-center justify-center shadow-lg">
+                      <svg className="w-5 h-5 sm:w-6 sm:h-6 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
                       </svg>
                     </div>
                     <div>
-                      <h2 className="text-2xl sm:text-3xl font-black text-white">Wrap Up</h2>
-                      <span className="text-xs font-bold text-yellow-400 uppercase tracking-wider">Coming Soon</span>
+                      <h2 className="text-xl sm:text-2xl lg:text-3xl font-black text-white">Wrap Up</h2>
+                      <span className="text-[10px] sm:text-xs font-bold text-yellow-400 uppercase tracking-wider">Coming Soon</span>
                     </div>
                   </div>
-                  
-                  <p className="text-white/70 mb-6">Track your progress in real-time, get personalized insights, and automatic wraps generated for you.</p>
 
-                  <ul className="space-y-2 mb-6">
+                  <p className="text-white/70 mb-3 sm:mb-6 text-sm sm:text-base">Track your progress in real-time, get personalized insights, and automatic wraps generated for you.</p>
+
+                  <ul className="space-y-1 sm:space-y-2 mb-3 sm:mb-6">
                     {comingSoonFeatures.map((feature, i) => (
-                      <li key={i} className="flex items-center gap-2 text-white/60 text-sm">
-                        <div className="w-4 h-4 rounded-full border border-white/30 flex-shrink-0" />
+                      <li key={i} className="flex items-center gap-2 text-white/60 text-xs sm:text-sm">
+                        <div className="w-3 h-3 sm:w-4 sm:h-4 rounded-full border border-white/30 flex-shrink-0" />
                         {feature}
                       </li>
                     ))}
                   </ul>
-                  
-                  <div className="flex items-center gap-2 text-white/50 font-bold">
-                    <Lock size={16} />
+
+                  <div className="flex items-center gap-2 text-white/50 font-bold text-sm">
+                    <Lock size={14} className="sm:w-4 sm:h-4" />
                     <span>Hover to get notified</span>
                   </div>
                 </div>
@@ -2845,13 +2921,13 @@ export default function App() {
             {/* Subtle inner glow */}
             <div className="absolute inset-0 rounded-3xl shadow-[inset_0_1px_1px_rgba(255,255,255,0.05)] pointer-events-none" />
             <div className="p-6 sm:p-8 pb-4 border-b border-white/[0.06] relative">
-              <h1 className="text-3xl sm:text-4xl md:text-5xl font-black text-white mb-2 tracking-tight text-center animate-title-slide-in">Create Your Wrapped</h1>
-              <p className="text-white/60 text-base sm:text-lg text-center animate-subtitle-slide-in">Track anything you want and share it with friends</p>
+              <h1 className="text-3xl sm:text-4xl md:text-5xl font-black text-white mb-2 tracking-tight text-center animate-title-slide-in">Create Your Wrap</h1>
+              <p className="text-white/60 text-base sm:text-lg text-center animate-subtitle-slide-in">Track anything you want and share it with friends!</p>
             </div>
             <div className="p-6 sm:p-8 pt-6">
               <div className="space-y-6 sm:space-y-8">
                 <div title="Pick a template to auto-fill suggested stats for your topic" className="animate-section-fade-in" style={{ animationDelay: '0.2s' }}><FieldLabel>Quick Start Templates</FieldLabel><TemplateSelector selectedTemplate={selectedTemplate} onSelect={applyTemplate} /><p className="text-white/40 text-xs mt-2 italic">Note: Switching between templates removes stats data.</p></div>
-                <div className="animate-section-fade-in" style={{ animationDelay: '0.3s' }}><FieldLabel required error={validationErrors.title}>Wrapped Title</FieldLabel><input type="text" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="My Adventures" className={`w-full px-4 sm:px-5 py-3 sm:py-4 rounded-xl bg-white/[0.06] border text-white placeholder-white/40 focus:outline-none focus:bg-white/[0.08] focus:border-white/30  backdrop-blur-sm font-medium text-base sm:text-lg transition-all duration-300 shadow-[inset_0_1px_2px_rgba(0,0,0,0.1)] ${validationErrors.title ? 'border-red-500/50' : 'border-white/[0.08]'}`} />{validationErrors.title && <p className="text-red-400 text-sm mt-2">Please enter a title for your Wrapped</p>}</div>
+                <div className="animate-section-fade-in" style={{ animationDelay: '0.3s' }}><FieldLabel required error={validationErrors.title}>Wrap Title</FieldLabel><input type="text" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="My Adventures" className={`w-full px-4 sm:px-5 py-3 sm:py-4 rounded-xl bg-white/[0.06] border text-white placeholder-white/40 focus:outline-none focus:bg-white/[0.08] focus:border-white/30  backdrop-blur-sm font-medium text-base sm:text-lg transition-all duration-300 shadow-[inset_0_1px_2px_rgba(0,0,0,0.1)] ${validationErrors.title ? 'border-red-500/50' : 'border-white/[0.08]'}`} />{validationErrors.title && <p className="text-red-400 text-sm mt-2">Please enter a title for your Wrapped</p>}</div>
                 <div className="animate-section-fade-in" style={{ animationDelay: '0.4s' }}><FieldLabel>Add Cover Image <span className="text-white/40 font-normal normal-case">(optional)</span></FieldLabel><div className="flex items-center gap-4">{coverImage ? (<div className="relative"><img src={coverImage} alt="Cover Preview" className="w-32 sm:w-40 h-20 sm:h-24 object-cover rounded-xl border border-white/[0.15]" /><button onClick={() => setCoverImage(null)} className="absolute -top-2 -right-2 p-1 bg-red-500 hover:bg-red-600 rounded-full text-white transition-colors"><X size={16} /></button></div>) : (<label className="flex items-center gap-2 sm:gap-3 px-4 sm:px-5 py-3 sm:py-4 bg-white/[0.06] hover:bg-white/[0.1] rounded-xl text-white/60 transition-all duration-300 border border-white/[0.08] hover:border-white/[0.15] cursor-pointer"><ImagePlus size={20} /><span className="font-medium text-sm sm:text-base">Upload Cover Image</span><input type="file" accept="image/*" onChange={(e) => handleCoverImageUpload(e.target.files[0])} className="hidden" /></label>)}</div></div>
                 <div className="animate-section-fade-in" style={{ animationDelay: '0.5s' }}><FieldLabel required error={validationErrors.dateRange}>Date Range</FieldLabel><input type="text" value={dateRange} onChange={(e) => setDateRange(e.target.value)} placeholder="E.g., 2026 Q1, November, Fall Semester" className={`w-full px-4 sm:px-5 py-3 sm:py-4 rounded-xl bg-white/[0.06] border text-white placeholder-white/40 focus:outline-none focus:bg-white/[0.08] focus:border-white/30  backdrop-blur-sm font-medium text-base sm:text-lg transition-all duration-300 shadow-[inset_0_1px_2px_rgba(0,0,0,0.1)] ${validationErrors.dateRange ? 'border-red-500/50' : 'border-white/[0.08]'}`} />{validationErrors.dateRange && <p className="text-red-400 text-sm mt-2">Please enter a date range</p>}</div>
 
@@ -2899,7 +2975,7 @@ export default function App() {
                         Your Moments
                       </span>
                     </FieldLabel>
-                    <p className="text-white/60 text-sm mb-3">Photo-first memories that mattered enough to pause.</p>
+                    <p className="text-white/60 text-sm mb-3"> A photo that shaped this Wrap.</p>
                     <div className="space-y-4">
                       {moments.map((moment, index) => (
                         <div key={index} className="relative p-4 pb-10 bg-gradient-to-br from-purple-500/10 to-pink-500/10 rounded-xl border border-purple-400/20 space-y-4">
@@ -2953,8 +3029,8 @@ export default function App() {
 
                 <div><FieldLabel>Add a Badge to your Wrap</FieldLabel><div className="space-y-4">{badges.map((badge, index) => (<div key={index} className="p-4 bg-white/5 rounded-xl border border-white/10 space-y-3"><div className="flex gap-3 items-start"><div className="relative"><button onClick={() => setShowEmojiPicker(showEmojiPicker === index ? null : index)} className="w-14 sm:w-16 h-14 sm:h-16 text-2xl sm:text-3xl rounded-xl bg-white/10 border-2 border-white/20 hover:bg-white/20 transition-colors flex items-center justify-center">{badge.emoji}</button>{showEmojiPicker === index && <EmojiPicker selectedEmoji={badge.emoji} onSelect={(emoji) => updateBadge(index, 'emoji', emoji)} onClose={() => setShowEmojiPicker(null)} />}</div><div className="flex-1 space-y-2"><input type="text" value={badge.title} onChange={(e) => updateBadge(index, 'title', e.target.value)} placeholder="Badge Title (e.g., Top Reader)" className="w-full px-4 sm:px-5 py-3 rounded-xl bg-white/10 border-2 border-white/20 text-white placeholder-white/50 focus:outline-none focus:ring-2 focus:ring-white/50 backdrop-blur-sm font-medium text-sm sm:text-base" /><input type="text" value={badge.subtext || ''} onChange={(e) => updateBadge(index, 'subtext', e.target.value)} placeholder="Subtext (Completed Reading Goal)" className="w-full px-4 py-2 rounded-xl bg-white/5 border border-white/10 text-white/80 placeholder-white/40 focus:outline-none focus:ring-2 focus:ring-white/30 backdrop-blur-sm text-sm" /></div><button onClick={() => removeBadge(index)} className="px-4 py-3 bg-red-500/20 hover:bg-red-500/40 rounded-xl text-white transition-colors border-2 border-red-500/40"><Trash2 size={20} /></button></div></div>))}<button onClick={addBadge} className="w-full flex items-center justify-center gap-2 px-5 py-3 bg-white/10 hover:bg-white/20 rounded-xl text-white transition-colors border-2 border-white/20 font-bold"><Plus size={20} />Add Badge</button></div></div>
                 <div title="Add a personal reflection that will appear as a special sparkle slide at the end"><FieldLabel><span className="flex items-center gap-2"><Sparkles size={18} className="text-white/70" />Reflection</span></FieldLabel><p className="text-white/60 text-sm mb-3">What's something you learned?</p><textarea value={reflection} onChange={(e) => setReflection(e.target.value)} placeholder="Share a meaningful insight or lesson..." className="w-full px-4 sm:px-5 py-3 sm:py-4 rounded-xl bg-white/10 border-2 border-white/20 text-white placeholder-white/50 focus:outline-none focus:ring-2 focus:ring-white/50 focus:border-transparent backdrop-blur-sm font-medium text-base sm:text-lg min-h-[100px] sm:min-h-[120px] resize-none" /></div>
-                <div title="Choose the color theme and atmosphere for your Wrapped"><FieldLabel>Choose your Wrapped Mood</FieldLabel><MoodSelector selectedMood={selectedMood} onSelect={setSelectedMood} /></div>
-                <button onClick={generateWrapped} className="w-full px-6 sm:px-8 py-4 sm:py-5 bg-white hover:bg-white/90 text-black font-black rounded-xl transition-all text-lg sm:text-xl shadow-xl hover:shadow-2xl hover:scale-[1.02] uppercase tracking-wide">Generate My Wrapped</button>
+                <div title="Choose the color theme and atmosphere for your Wrapped"><FieldLabel>Choose your Wrap Mood</FieldLabel><MoodSelector selectedMood={selectedMood} onSelect={setSelectedMood} /></div>
+                <button onClick={generateWrapped} className="w-full px-6 sm:px-8 py-4 sm:py-5 bg-white hover:bg-white/90 text-black font-black rounded-xl transition-all text-lg sm:text-xl shadow-xl hover:shadow-2xl hover:scale-[1.02] uppercase tracking-wide">Generate My Wrap</button>
               </div>
             </div>
           </div>
@@ -3165,7 +3241,16 @@ export default function App() {
                 <div className={`bg-black/40 backdrop-blur-2xl rounded-3xl p-6 sm:p-8 text-center shadow-2xl border-2 min-h-[600px] sm:min-h-[650px] flex flex-col justify-between relative ${stat.isHighlight ? 'border-yellow-400/60' : 'border-white/30'} ${activeTransition === 'drumroll' ? 'drumroll-glow' : ''} ${activeTransition === 'impact' ? 'animate-impact-slam' : ''}`} style={frameGlowStyle}>
                   {activeTransition === 'impact' && <ImpactDots />}
                   {showDrumrollGlitter && <DrumrollGlitter />}
-                  {stat.isHighlight && !viewedHighlights.has(currentSlideInfo.index) && <FallingStars key={`stars-first-view-${currentSlideInfo.index}`} slideKey={currentSlideInfo.index} />}
+                  {stat.isHighlight && starsVisible && (
+                    <div className="absolute inset-0 pointer-events-none overflow-hidden">
+                      {starsDataRef.current.map(star => (
+                        <div key={star.id} className="absolute animate-fall-star" style={{ left: `${star.left}%`, animationDelay: `${star.delay}s`, animationDuration: `${star.duration}s`, top: '-50px' }}>
+                          <Star size={star.size} className="text-yellow-300 fill-yellow-300 drop-shadow-lg" style={{ filter: 'drop-shadow(0 0 8px rgba(253, 224, 71, 0.8))' }} />
+                        </div>
+                      ))}
+                      <style>{`@keyframes fall-star { 0% { transform: translateY(-50px) rotate(0deg); opacity: 1; } 100% { transform: translateY(100vh) rotate(360deg); opacity: 0; } } .animate-fall-star { animation: fall-star linear forwards; }`}</style>
+                    </div>
+                  )}
                   {!stat.isHighlight && !isLongText && !stat.image && getDecorativeShapes(currentSlideInfo.index)}
                   <div className={`flex-1 flex flex-col justify-center space-y-4 sm:space-y-6 relative z-10 ${activeTransition === 'impact' ? 'animate-impact-text' : ''}`}>{stat.image && <div className="mb-4"><img src={stat.image} alt={stat.label} className="w-full max-w-sm mx-auto h-48 sm:h-64 object-cover rounded-2xl shadow-2xl border-2 border-white/20" /></div>}<div className={`text-white/70 text-lg sm:text-2xl font-bold uppercase tracking-wider ${labelAnim} ${drumrollLabelAnim}`}>{stat.label}</div><div className={`text-white ${valueAnim} ${drumrollValueAnim}`}>{formatValue(stat.value)}</div>{stat.note && <div className={`text-white/50 text-base sm:text-lg italic mt-4 max-w-md mx-auto px-2 ${noteAnim} ${drumrollNoteAnim}`}>({stat.note})</div>}</div>
                   <div className="text-white/30 font-black text-sm uppercase tracking-widest mt-4 relative z-10">{dateRange || 'Wrapped'}</div>
