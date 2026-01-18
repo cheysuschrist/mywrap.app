@@ -1706,10 +1706,10 @@ export default function App() {
                     ))}
                   </ul>
 
-                  {/* CTA Button with micro-interaction */}
-                  <div className="inline-flex items-center gap-2 px-5 py-3 bg-gradient-to-r from-purple-600 to-pink-600 rounded-xl text-white font-bold group-hover:from-purple-500 group-hover:to-pink-500 transition-all duration-300 shadow-lg shadow-purple-500/25 group-hover:shadow-purple-500/40 transform group-hover:translate-x-1">
+                  {/* CTA Button with soft glow effect */}
+                  <div className="inline-flex items-center gap-2 px-5 py-3 bg-white/10 backdrop-blur-sm rounded-xl text-white font-bold transition-all duration-500 border border-white/20 group-hover:border-white/40 group-hover:bg-white/15 cta-glow">
                     <span>Start Creating</span>
-                    <ChevronRight size={20} className="group-hover:translate-x-1 transition-transform" />
+                    <ChevronRight size={20} className="group-hover:translate-x-1 transition-transform duration-300" />
                   </div>
                 </div>
               </div>
@@ -1830,6 +1830,42 @@ export default function App() {
             50% { transform: translateY(-5px); }
           }
           .animate-bounce-subtle { animation: bounce-subtle 2s ease-in-out infinite; }
+
+          /* CTA soft glow */
+          .cta-glow {
+            box-shadow: 0 0 20px rgba(139, 92, 246, 0.15), 0 0 40px rgba(139, 92, 246, 0.05);
+            transition: box-shadow 0.5s ease, background 0.3s ease, border-color 0.3s ease;
+          }
+          .cta-glow:hover, .group:hover .cta-glow {
+            box-shadow: 0 0 30px rgba(139, 92, 246, 0.25), 0 0 60px rgba(139, 92, 246, 0.1);
+          }
+
+          /* Ambient drift animations for create page */
+          @keyframes drift-slow {
+            0%, 100% { transform: translate(0, 0) rotate(0deg); }
+            25% { transform: translate(40px, -30px) rotate(2deg); }
+            50% { transform: translate(20px, 20px) rotate(-1deg); }
+            75% { transform: translate(-30px, -10px) rotate(1deg); }
+          }
+          .animate-drift-slow { animation: drift-slow 30s ease-in-out infinite; }
+
+          @keyframes drift-slower {
+            0%, 100% { transform: translate(0, 0) rotate(0deg); }
+            33% { transform: translate(-50px, 40px) rotate(-2deg); }
+            66% { transform: translate(30px, -20px) rotate(1deg); }
+          }
+          .animate-drift-slower { animation: drift-slower 40s ease-in-out infinite; }
+
+          @keyframes breathe {
+            0%, 100% { opacity: 0.05; transform: scale(1); }
+            50% { opacity: 0.08; transform: scale(1.15); }
+          }
+          .animate-breathe { animation: breathe 8s ease-in-out infinite; }
+
+          /* Form card subtle glow */
+          .form-card-glow {
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5), 0 0 80px rgba(139, 92, 246, 0.03);
+          }
         `}</style>
       </div>
     );
@@ -1883,6 +1919,16 @@ export default function App() {
       <div className="min-h-screen relative transition-all duration-1000">
         <DynamicBackground moodId={selectedMood} /><NoiseOverlay />
 
+        {/* Ambient floating orbs for depth and motion */}
+        <div className="fixed inset-0 overflow-hidden pointer-events-none z-0">
+          <div className="absolute w-[600px] h-[600px] rounded-full blur-[150px] animate-drift-slow opacity-[0.08]"
+            style={{ background: `radial-gradient(circle, ${moods.find(m => m.id === selectedMood)?.colors[0] || '#7c3aed'} 0%, transparent 70%)`, top: '-20%', left: '-15%' }} />
+          <div className="absolute w-[500px] h-[500px] rounded-full blur-[120px] animate-drift-slower opacity-[0.06]"
+            style={{ background: `radial-gradient(circle, ${moods.find(m => m.id === selectedMood)?.colors[1] || '#c4b5fd'} 0%, transparent 70%)`, bottom: '-15%', right: '-10%' }} />
+          <div className="absolute w-[300px] h-[300px] rounded-full blur-[80px] animate-breathe opacity-[0.05]"
+            style={{ background: 'radial-gradient(circle, rgba(255,255,255,0.4) 0%, transparent 70%)', top: '30%', left: '50%' }} />
+        </div>
+
         {/* Image format error notification */}
         {imageFormatError && (
           <div className="fixed top-20 left-1/2 transform -translate-x-1/2 z-[100] animate-fade-in-down">
@@ -1919,21 +1965,23 @@ export default function App() {
         </button>
         
         <div className="relative z-10 w-full max-w-4xl mx-auto px-4 sm:px-6 py-8 sm:py-12">
-          <div className="backdrop-blur-2xl rounded-3xl border-2 border-white/20 shadow-2xl overflow-hidden relative" style={{
-            background: `linear-gradient(135deg, ${moods.find(m => m.id === selectedMood)?.bgColors[0] || '#2e1065'}40 0%, ${moods.find(m => m.id === selectedMood)?.bgColors[1] || '#3b0764'}30 50%, ${moods.find(m => m.id === selectedMood)?.bgColors[2] || '#4a044e'}20 100%)`
+          <div className="backdrop-blur-2xl rounded-3xl border border-white/[0.08] shadow-2xl overflow-hidden relative form-card-glow" style={{
+            background: `linear-gradient(135deg, ${moods.find(m => m.id === selectedMood)?.bgColors[0] || '#2e1065'}30 0%, ${moods.find(m => m.id === selectedMood)?.bgColors[1] || '#3b0764'}20 50%, ${moods.find(m => m.id === selectedMood)?.bgColors[2] || '#4a044e'}15 100%)`
           }}>
-            <div className="p-6 sm:p-8 pb-4 border-b border-white/10 relative">
+            {/* Subtle inner glow */}
+            <div className="absolute inset-0 rounded-3xl shadow-[inset_0_1px_1px_rgba(255,255,255,0.05)] pointer-events-none" />
+            <div className="p-6 sm:p-8 pb-4 border-b border-white/[0.06] relative">
               <h1 className="text-3xl sm:text-4xl md:text-5xl font-black text-white mb-2 tracking-tight text-center animate-title-fade-in">Create Your Wrapped</h1>
-              <p className="text-white/80 text-base sm:text-lg text-center animate-subtitle-fade-in">Track anything you want and share it with friends</p>
+              <p className="text-white/70 text-base sm:text-lg text-center animate-subtitle-fade-in">Track anything you want and share it with friends</p>
             </div>
             <div className="p-6 sm:p-8 pt-6">
               <div className="space-y-6 sm:space-y-8">
                 <div title="Pick a template to auto-fill suggested stats for your topic"><FieldLabel>Quick Start Templates</FieldLabel><TemplateSelector selectedTemplate={selectedTemplate} onSelect={applyTemplate} /><p className="text-white/50 text-xs mt-2 italic">Note: Switching between templates removes stats data.</p></div>
-                <div><FieldLabel required error={validationErrors.title}>Wrapped Title</FieldLabel><input type="text" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="My Adventures" className={`w-full px-4 sm:px-5 py-3 sm:py-4 rounded-xl bg-white/10 border-2 text-white placeholder-white/50 focus:outline-none focus:ring-2 focus:ring-white/50 focus:border-transparent backdrop-blur-sm font-medium text-base sm:text-lg transition-colors ${validationErrors.title ? 'border-red-500' : 'border-white/20'}`} />{validationErrors.title && <p className="text-red-400 text-sm mt-2">Please enter a title for your Wrapped</p>}</div>
+                <div><FieldLabel required error={validationErrors.title}>Wrapped Title</FieldLabel><input type="text" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="My Adventures" className={`w-full px-4 sm:px-5 py-3 sm:py-4 rounded-xl bg-white/[0.06] border text-white placeholder-white/40 focus:outline-none focus:bg-white/[0.08] focus:border-white/30 focus:shadow-[0_0_20px_rgba(255,255,255,0.05)] backdrop-blur-sm font-medium text-base sm:text-lg transition-all duration-300 shadow-[inset_0_1px_2px_rgba(0,0,0,0.1)] ${validationErrors.title ? 'border-red-500/50' : 'border-white/[0.08]'}`} />{validationErrors.title && <p className="text-red-400 text-sm mt-2">Please enter a title for your Wrapped</p>}</div>
                 <div><FieldLabel>Add Cover Image <span className="text-white/50 font-normal normal-case">(optional)</span></FieldLabel><div className="flex items-center gap-4">{coverImage ? (<div className="relative"><img src={coverImage} alt="Cover Preview" className="w-32 sm:w-40 h-20 sm:h-24 object-cover rounded-xl border-2 border-white/20" /><button onClick={() => setCoverImage(null)} className="absolute -top-2 -right-2 p-1 bg-red-500 hover:bg-red-600 rounded-full text-white transition-colors"><X size={16} /></button></div>) : (<label className="flex items-center gap-2 sm:gap-3 px-4 sm:px-5 py-3 sm:py-4 bg-white/10 hover:bg-white/20 rounded-xl text-white/70 transition-colors border-2 border-white/20 cursor-pointer"><ImagePlus size={20} /><span className="font-medium text-sm sm:text-base">Upload Cover Image</span><input type="file" accept="image/*" onChange={(e) => handleCoverImageUpload(e.target.files[0])} className="hidden" /></label>)}</div></div>
-                <div><FieldLabel required error={validationErrors.dateRange}>Date Range</FieldLabel><input type="text" value={dateRange} onChange={(e) => setDateRange(e.target.value)} placeholder="E.g., 2026 Q1, November, Fall Semester" className={`w-full px-4 sm:px-5 py-3 sm:py-4 rounded-xl bg-white/10 border-2 text-white placeholder-white/50 focus:outline-none focus:ring-2 focus:ring-white/50 focus:border-transparent backdrop-blur-sm font-medium text-base sm:text-lg transition-colors ${validationErrors.dateRange ? 'border-red-500' : 'border-white/20'}`} />{validationErrors.dateRange && <p className="text-red-400 text-sm mt-2">Please enter a date range</p>}</div>
+                <div><FieldLabel required error={validationErrors.dateRange}>Date Range</FieldLabel><input type="text" value={dateRange} onChange={(e) => setDateRange(e.target.value)} placeholder="E.g., 2026 Q1, November, Fall Semester" className={`w-full px-4 sm:px-5 py-3 sm:py-4 rounded-xl bg-white/[0.06] border text-white placeholder-white/40 focus:outline-none focus:bg-white/[0.08] focus:border-white/30 focus:shadow-[0_0_20px_rgba(255,255,255,0.05)] backdrop-blur-sm font-medium text-base sm:text-lg transition-all duration-300 shadow-[inset_0_1px_2px_rgba(0,0,0,0.1)] ${validationErrors.dateRange ? 'border-red-500/50' : 'border-white/[0.08]'}`} />{validationErrors.dateRange && <p className="text-red-400 text-sm mt-2">Please enter a date range</p>}</div>
 
-                <div><FieldLabel>Background Music</FieldLabel><select value={selectedMusic} onChange={(e) => handleMusicSelect(e.target.value)} className="w-full px-4 sm:px-5 py-3 sm:py-4 rounded-xl bg-white/10 border-2 border-white/20 text-white focus:outline-none focus:ring-2 focus:ring-white/50 focus:border-transparent backdrop-blur-sm font-medium text-base sm:text-lg">{musicTracks.map(track => (<option key={track.id} value={track.id} className="bg-gray-900 text-white">{track.name}</option>))}</select>{selectedMusic === 'custom' && (<label className="mt-3 flex items-center gap-3 px-4 py-3 bg-white/10 hover:bg-white/20 rounded-xl text-white/70 transition-colors border-2 border-dashed border-white/30 cursor-pointer"><Upload size={20} /><span className="font-medium">{customMusicFile ? customMusicFile.name : 'Choose audio file (.mp3, .wav, etc.)'}</span><input type="file" accept="audio/*" onChange={(e) => handleCustomMusicUpload(e.target.files[0])} className="hidden" /></label>)}{audioRef.current && (<p className="text-white/50 text-sm mt-2">Use the speaker button to play/pause music</p>)}</div>
+                <div><FieldLabel>Background Music</FieldLabel><select value={selectedMusic} onChange={(e) => handleMusicSelect(e.target.value)} className="w-full px-4 sm:px-5 py-3 sm:py-4 rounded-xl bg-white/[0.06] border border-white/[0.08] text-white focus:outline-none focus:bg-white/[0.08] focus:border-white/30 focus:shadow-[0_0_20px_rgba(255,255,255,0.05)] backdrop-blur-sm font-medium text-base sm:text-lg transition-all duration-300 shadow-[inset_0_1px_2px_rgba(0,0,0,0.1)]">{musicTracks.map(track => (<option key={track.id} value={track.id} className="bg-gray-900 text-white">{track.name}</option>))}</select>{selectedMusic === 'custom' && (<label className="mt-3 flex items-center gap-3 px-4 py-3 bg-white/10 hover:bg-white/20 rounded-xl text-white/70 transition-colors border-2 border-dashed border-white/30 cursor-pointer"><Upload size={20} /><span className="font-medium">{customMusicFile ? customMusicFile.name : 'Choose audio file (.mp3, .wav, etc.)'}</span><input type="file" accept="audio/*" onChange={(e) => handleCustomMusicUpload(e.target.files[0])} className="hidden" /></label>)}{audioRef.current && (<p className="text-white/50 text-sm mt-2">Use the speaker button to play/pause music</p>)}</div>
 
                 {/* Stats with transition buttons between them */}
                 <div>
@@ -1942,12 +1990,12 @@ export default function App() {
                   <div className="space-y-2">
                     {stats.map((stat, index) => (
                       <React.Fragment key={index}>
-                        <div className="relative space-y-3 p-4 pb-10 bg-white/5 rounded-xl border border-white/10">
+                        <div className="relative space-y-3 p-4 pb-10 bg-white/[0.03] rounded-xl border border-white/[0.06] transition-all duration-300 hover:bg-white/[0.04] hover:border-white/[0.1]">
                           <div className="flex flex-col sm:flex-row gap-3">
-                            <input type="text" value={stat.label} onChange={(e) => updateStat(index, 'label', e.target.value)} placeholder="Stat Label (e.g., Books Read)" className={`flex-1 px-4 sm:px-5 py-3 sm:py-4 rounded-xl bg-white/10 border-2 text-white placeholder-white/50 focus:outline-none focus:ring-2 focus:ring-white/50 backdrop-blur-sm font-bold text-sm sm:text-base transition-colors ${validationErrors[`stat-${index}-label`] ? 'border-red-500' : 'border-white/20'}`} />
-                            <input type="text" value={stat.value} onChange={(e) => updateStat(index, 'value', e.target.value)} placeholder="Value (e.g., 42, Lagos, A+)" className={`flex-1 px-4 sm:px-5 py-3 sm:py-4 rounded-xl bg-white/10 border-2 text-white placeholder-white/50 focus:outline-none focus:ring-2 focus:ring-white/50 backdrop-blur-sm font-medium text-sm sm:text-base transition-colors ${validationErrors[`stat-${index}-value`] ? 'border-red-500' : 'border-white/20'}`} />
+                            <input type="text" value={stat.label} onChange={(e) => updateStat(index, 'label', e.target.value)} placeholder="Stat Label (e.g., Books Read)" className={`flex-1 px-4 sm:px-5 py-3 sm:py-4 rounded-xl bg-white/[0.06] border text-white placeholder-white/40 focus:outline-none focus:bg-white/[0.08] focus:border-white/30 focus:shadow-[0_0_15px_rgba(255,255,255,0.04)] backdrop-blur-sm font-bold text-sm sm:text-base transition-all duration-300 shadow-[inset_0_1px_2px_rgba(0,0,0,0.1)] ${validationErrors[`stat-${index}-label`] ? 'border-red-500/50' : 'border-white/[0.08]'}`} />
+                            <input type="text" value={stat.value} onChange={(e) => updateStat(index, 'value', e.target.value)} placeholder="Value (e.g., 42, Lagos, A+)" className={`flex-1 px-4 sm:px-5 py-3 sm:py-4 rounded-xl bg-white/[0.06] border text-white placeholder-white/40 focus:outline-none focus:bg-white/[0.08] focus:border-white/30 focus:shadow-[0_0_15px_rgba(255,255,255,0.04)] backdrop-blur-sm font-medium text-sm sm:text-base transition-all duration-300 shadow-[inset_0_1px_2px_rgba(0,0,0,0.1)] ${validationErrors[`stat-${index}-value`] ? 'border-red-500/50' : 'border-white/[0.08]'}`} />
                           </div>
-                          <input type="text" value={stat.note} onChange={(e) => updateStat(index, 'note', e.target.value)} placeholder="Extra Info (optional)" className="w-full px-4 sm:px-5 py-2 sm:py-3 rounded-xl bg-white/10 border-2 border-white/20 text-white placeholder-white/50 focus:outline-none focus:ring-2 focus:ring-white/50 backdrop-blur-sm font-medium text-sm" />
+                          <input type="text" value={stat.note} onChange={(e) => updateStat(index, 'note', e.target.value)} placeholder="Extra Info (optional)" className="w-full px-4 sm:px-5 py-2 sm:py-3 rounded-xl bg-white/[0.06] border border-white/[0.08] text-white placeholder-white/40 focus:outline-none focus:bg-white/[0.08] focus:border-white/30 focus:shadow-[0_0_15px_rgba(255,255,255,0.04)] backdrop-blur-sm font-medium text-sm transition-all duration-300 shadow-[inset_0_1px_2px_rgba(0,0,0,0.1)]" />
                           <div className="flex items-center gap-2" title="Highlighted stats get a special golden glow and falling stars animation">
                             <input type="checkbox" id={`highlight-${index}`} checked={stat.isHighlight} onChange={(e) => updateStat(index, 'isHighlight', e.target.checked)} className="w-5 h-5 rounded border-2 border-white/20 bg-white/10 checked:bg-yellow-400 checked:border-yellow-400 cursor-pointer" />
                             <label htmlFor={`highlight-${index}`} className="text-white/80 text-sm font-medium cursor-pointer flex items-center gap-2"><Star size={16} className="text-yellow-300 fill-yellow-300" />Highlight this Stat</label>
@@ -1962,8 +2010,8 @@ export default function App() {
                       </React.Fragment>
                     ))}
                     <div className="flex gap-3 mt-4">
-                      <button onClick={addStat} className="flex-1 flex items-center justify-center gap-2 px-5 py-3 bg-white/10 hover:bg-white/20 rounded-xl text-white transition-colors border-2 border-white/20 font-bold"><Plus size={20} />Add Stat</button>
-                      <button onClick={addMoment} className="flex-1 flex items-center justify-center gap-2 px-5 py-3 bg-gradient-to-r from-purple-500/20 to-pink-500/20 hover:from-purple-500/30 hover:to-pink-500/30 rounded-xl text-white transition-colors border-2 border-purple-400/30 font-bold"><Camera size={20} />Add Moment</button>
+                      <button onClick={addStat} className="flex-1 flex items-center justify-center gap-2 px-5 py-3 bg-white/[0.06] hover:bg-white/[0.1] rounded-xl text-white transition-all duration-300 border border-white/[0.08] hover:border-white/20 font-bold hover:shadow-[0_0_20px_rgba(255,255,255,0.05)]"><Plus size={20} />Add Stat</button>
+                      <button onClick={addMoment} className="flex-1 flex items-center justify-center gap-2 px-5 py-3 bg-purple-500/[0.08] hover:bg-purple-500/[0.15] rounded-xl text-white transition-all duration-300 border border-purple-400/[0.15] hover:border-purple-400/30 font-bold hover:shadow-[0_0_20px_rgba(139,92,246,0.1)]"><Camera size={20} />Add Moment</button>
                     </div>
                   </div>
                 </div>
