@@ -59,6 +59,7 @@ export default function App() {
 
   // Onboarding slideshow state
   const [showOnboarding, setShowOnboarding] = useState(false);
+  const [showFormAfterOnboarding, setShowFormAfterOnboarding] = useState(false);
   const [hasSeenOnboarding, setHasSeenOnboarding] = useState(() => {
     if (typeof window !== 'undefined') {
       return localStorage.getItem('mywrap_seen_onboarding') === 'true';
@@ -422,6 +423,7 @@ export default function App() {
     setStep('input');
     // Always show onboarding for now (remove hasSeenOnboarding check temporarily for testing)
     setShowOnboarding(true);
+    setShowFormAfterOnboarding(false); // Reset so form animates in after onboarding closes
   };
 
   const resetWrapped = () => {
@@ -2815,7 +2817,7 @@ export default function App() {
 
         {/* Help/Tour button - hides on scroll */}
         <button
-          onClick={() => setShowOnboarding(true)}
+          onClick={() => { setShowOnboarding(true); }}
           className={`fixed top-4 sm:top-6 left-16 sm:left-20 px-3 py-2 sm:py-3 bg-white/10 hover:bg-white/20 rounded-full text-white transition-all duration-300 backdrop-blur-sm border-2 border-white/20 z-50 flex items-center gap-2 text-sm font-medium
             ${isScrolled ? 'opacity-0 pointer-events-none -translate-y-2' : 'opacity-100 translate-y-0'}`}
         >
@@ -2823,8 +2825,10 @@ export default function App() {
           <span className="hidden sm:inline">Tour</span>
         </button>
 
+        {/* Form container - only show after onboarding closes (or if already showing) */}
+        {showFormAfterOnboarding && (
         <div className="relative z-10 w-full max-w-4xl mx-auto px-4 sm:px-6 py-8 sm:py-12">
-          <div className="backdrop-blur-2xl rounded-3xl border border-white/[0.08] shadow-2xl overflow-hidden relative form-card-glow animate-form-entrance" style={{
+          <div className={`backdrop-blur-2xl rounded-3xl border border-white/[0.08] shadow-2xl overflow-hidden relative form-card-glow ${showFormAfterOnboarding ? 'animate-form-entrance' : ''}`} style={{
             background: `linear-gradient(135deg, ${moods.find(m => m.id === selectedMood)?.bgColors[0] || '#2e1065'}30 0%, ${moods.find(m => m.id === selectedMood)?.bgColors[1] || '#3b0764'}20 50%, ${moods.find(m => m.id === selectedMood)?.bgColors[2] || '#4a044e'}15 100%)`
           }}>
             {/* Subtle inner glow */}
@@ -2944,6 +2948,7 @@ export default function App() {
             </div>
           </div>
         </div>
+        )}
 
         {/* Create page animations */}
         <style>{`
@@ -3028,7 +3033,7 @@ export default function App() {
 
         {/* Onboarding Slideshow - shows on Tour button click or first visit */}
         {showOnboarding && (
-          <OnboardingSlideshow onClose={() => setShowOnboarding(false)} />
+          <OnboardingSlideshow onClose={() => { setShowOnboarding(false); setShowFormAfterOnboarding(true); }} />
         )}
       </div>
     );
@@ -3426,7 +3431,7 @@ export default function App() {
 
       {/* Onboarding Slideshow - shows on first visit */}
       {showOnboarding && (
-        <OnboardingSlideshow onClose={() => setShowOnboarding(false)} />
+        <OnboardingSlideshow onClose={() => { setShowOnboarding(false); setShowFormAfterOnboarding(true); }} />
       )}
     </div>
   );
