@@ -144,10 +144,8 @@ export default async function handler(req, res) {
     await kv.set(`wrap:${id}`, wrapData, { ex: 60 * 60 * 24 * 365 });
     console.log('[API /wraps/create] Wrap saved successfully');
 
-    // Build the shareable URL
-    const baseUrl = process.env.VERCEL_URL
-      ? `https://${process.env.VERCEL_URL}`
-      : process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000';
+    // Build the shareable URL - always use production domain for consistency
+    const baseUrl = process.env.PRODUCTION_URL || 'https://mywrap.app';
 
     const shareUrl = `${baseUrl}/w/${id}`;
     console.log('[API /wraps/create] Generated share URL:', shareUrl);

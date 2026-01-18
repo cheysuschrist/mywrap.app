@@ -399,7 +399,7 @@ export default function App() {
     setAttemptedSubmit(true);
     if (!validateForm()) return;
     setStep('preview'); setCurrentSlide(0); setViewedHighlights(new Set()); setViewedBadges(new Set());
-    setViewedReflection(false); setShowConfetti(false); setAuraOffset(0);
+    setViewedReflection(false); setShowConfetti(false); setAuraOffset(0); setTextPlayedSlides(new Set()); setSlideTextTheme({});
   };
 
   const editWrapped = () => { setStep('input'); setShowConfetti(false); setAttemptedSubmit(false); setValidationErrors({}); };
@@ -772,7 +772,7 @@ export default function App() {
         // delay marking highlights as viewed so highlight animations (glow + stars) can play
         const markTimeout = setTimeout(() => {
           setViewedHighlights(prev => new Set([...prev, statIndex]));
-        }, 1200);
+        }, 5000);  // Allow 5 seconds for falling stars animation to complete
         return () => clearTimeout(markTimeout);
       }
     }
@@ -796,7 +796,7 @@ export default function App() {
       }
       const t = setTimeout(() => {
         setTextPlayedSlides(prev => new Set([...prev, currentSlide]));
-      }, 80);
+      }, 2000);
       return () => clearTimeout(t);
     }
   }, [currentSlide, currentSlideInfo, validStats, activeTransition, impactPlayedSlides, textPlayedSlides]);
@@ -1210,22 +1210,6 @@ export default function App() {
           }}
         />
 
-        {/* Animated glow ring on first view */}
-        {shouldAnimate && (
-          <div className="absolute inset-0 rounded-3xl pointer-events-none overflow-hidden">
-            <div
-              className="absolute inset-[-2px] rounded-3xl animate-moment-glow-ring"
-              style={{
-                background: `conic-gradient(from 0deg, transparent 0deg, ${glowConfig.color}80 30deg, ${glowConfig.color} 60deg, ${glowConfig.color}80 90deg, transparent 120deg)`,
-                mask: 'linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0)',
-                maskComposite: 'exclude',
-                WebkitMaskComposite: 'xor',
-                padding: '3px',
-              }}
-            />
-          </div>
-        )}
-
         {/* Content overlay at bottom */}
         <div className="relative z-10 mt-auto p-6 sm:p-8">
           <div className={`${shouldAnimate ? 'animate-moment-text' : ''}`}>
@@ -1245,17 +1229,12 @@ export default function App() {
             0% { transform: scale(1.1); opacity: 0.8; }
             100% { transform: scale(1); opacity: 1; }
           }
-          @keyframes moment-glow-ring {
-            0% { transform: rotate(0deg); opacity: 1; }
-            100% { transform: rotate(360deg); opacity: 0; }
-          }
           @keyframes moment-text {
             0% { opacity: 0; transform: translateY(20px); }
             50% { opacity: 0; transform: translateY(20px); }
             100% { opacity: 1; transform: translateY(0); }
           }
           .animate-moment-zoom { animation: moment-zoom 1.2s ease-out forwards; }
-          .animate-moment-glow-ring { animation: moment-glow-ring 1.8s ease-out forwards; }
           .animate-moment-text { animation: moment-text 1.4s ease-out forwards; }
         `}</style>
       </div>
@@ -1484,10 +1463,33 @@ export default function App() {
   };
 
   const NoiseOverlay = () => {
-    // Safari/mobile: Skip noise entirely (renders poorly)
-    // Chrome: Always show noise
+    // Safari/mobile: Use lightweight CSS-based grain for visual depth
+    // Chrome: High-quality SVG noise filter
     if (isSafari) {
-      return null; // No noise on Safari/mobile
+      // Mobile-optimized grain using CSS gradient technique - performs well, adds texture
+      return (
+        <>
+          {/* Fine grain layer */}
+          <div className="fixed inset-0 opacity-[0.15] pointer-events-none z-[1]"
+            style={{
+              backgroundImage: `url("data:image/svg+xml,%3Csvg viewBox='0 0 400 400' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E")`,
+              backgroundSize: '150px 150px'
+            }}
+          />
+          {/* Subtle vignette for depth */}
+          <div className="fixed inset-0 pointer-events-none z-[2]"
+            style={{
+              background: 'radial-gradient(ellipse at center, transparent 40%, rgba(0,0,0,0.3) 100%)'
+            }}
+          />
+          {/* Soft inner glow */}
+          <div className="fixed inset-0 pointer-events-none z-[1] opacity-30"
+            style={{
+              background: 'radial-gradient(ellipse at 50% 30%, rgba(255,255,255,0.08) 0%, transparent 50%)'
+            }}
+          />
+        </>
+      );
     }
     // Chrome only - high-quality noise
     return (
@@ -1614,7 +1616,8 @@ export default function App() {
       'Real-time productivity tracking',
       'Automatic daily/weekly wraps',
       'Goal setting & progress',
-      'Analytics dashboard'
+      'Analytics dashboard',
+      'Personalized insights'
     ];
 
     return (
@@ -1622,14 +1625,16 @@ export default function App() {
         <DynamicBackground moodId="twilight" />
         <NoiseOverlay forceShow={true} />
 
-        {/* Floating aura orbs for depth */}
+        {/* Floating aura orbs for depth - more noticeable movement */}
         <div className="absolute inset-0 overflow-hidden pointer-events-none">
-          <div className="absolute w-[500px] h-[500px] rounded-full blur-[120px] animate-float-slow opacity-20"
-            style={{ background: 'radial-gradient(circle, rgba(139, 92, 246, 0.6) 0%, transparent 70%)', top: '-10%', left: '-10%' }} />
-          <div className="absolute w-[400px] h-[400px] rounded-full blur-[100px] animate-float-slower opacity-15"
-            style={{ background: 'radial-gradient(circle, rgba(236, 72, 153, 0.5) 0%, transparent 70%)', bottom: '-5%', right: '-5%' }} />
-          <div className="absolute w-[300px] h-[300px] rounded-full blur-[80px] animate-float-medium opacity-10"
-            style={{ background: 'radial-gradient(circle, rgba(59, 130, 246, 0.5) 0%, transparent 70%)', top: '40%', left: '60%' }} />
+          <div className="absolute w-[600px] h-[600px] rounded-full blur-[150px] landing-aura-1 opacity-25"
+            style={{ background: 'radial-gradient(circle, rgba(139, 92, 246, 0.7) 0%, transparent 70%)', top: '-15%', left: '-15%' }} />
+          <div className="absolute w-[500px] h-[500px] rounded-full blur-[130px] landing-aura-2 opacity-20"
+            style={{ background: 'radial-gradient(circle, rgba(236, 72, 153, 0.6) 0%, transparent 70%)', bottom: '-10%', right: '-10%' }} />
+          <div className="absolute w-[400px] h-[400px] rounded-full blur-[100px] landing-aura-3 opacity-15"
+            style={{ background: 'radial-gradient(circle, rgba(59, 130, 246, 0.6) 0%, transparent 70%)', top: '35%', left: '55%' }} />
+          <div className="absolute w-[350px] h-[350px] rounded-full blur-[90px] landing-aura-4 opacity-12"
+            style={{ background: 'radial-gradient(circle, rgba(168, 85, 247, 0.5) 0%, transparent 70%)', top: '60%', left: '20%' }} />
         </div>
 
         <div className="relative z-10 min-h-screen flex flex-col">
@@ -1641,7 +1646,7 @@ export default function App() {
               {/* Logo with bounce animation */}
               <img src="/MyWrap.png" alt="MyWrap" className="relative w-20 h-20 sm:w-28 sm:h-28 object-contain animate-logo-bounce drop-shadow-2xl" />
             </div>
-            <p className="text-white/70 text-[10px] sm:text-xs font-medium uppercase tracking-widest mt-1 animate-fade-in-up" style={{ animationDelay: '0.3s' }}>Your moments, wrapped.</p>
+            <p className="text-white/70 text-[10px] sm:text-xs font-medium uppercase tracking-widest mt-1 animate-fade-in-up" style={{ animationDelay: '0.3s' }}>Your moments, wrapped up.</p>
 
             {/* What is a Wrapped? */}
             <div className="mt-6 flex items-start justify-center gap-1.5 text-white/60 text-sm max-w-md mx-auto animate-fade-in-up" style={{ animationDelay: '0.5s' }}>
@@ -1690,12 +1695,12 @@ export default function App() {
                       <Sparkles className="w-6 h-6 text-white" />
                     </div>
                     <div>
-                      <h2 className="text-2xl sm:text-3xl font-black text-white">Wrapped</h2>
+                      <h2 className="text-2xl sm:text-3xl font-black text-white">My Wrap</h2>
                       <span className="text-xs font-bold text-green-400 uppercase tracking-wider">Available Now</span>
                     </div>
                   </div>
 
-                  <p className="text-white/70 mb-6">Create a custom wrapped for your trip, fitness achievements, reading list—anything worth sharing.</p>
+                  <p className="text-white/70 mb-6">Create a custom recap for your trip, fitness achievements, reading list—anything worth sharing.</p>
 
                   <ul className="space-y-2 mb-6">
                     {wrappedFeatures.map((feature, i) => (
@@ -1735,7 +1740,7 @@ export default function App() {
                       </svg>
                     </div>
                     <div>
-                      <h2 className="text-2xl sm:text-3xl font-black text-white">Productivity</h2>
+                      <h2 className="text-2xl sm:text-3xl font-black text-white">Wrap Up</h2>
                       <span className="text-xs font-bold text-yellow-400 uppercase tracking-wider">Coming Soon</span>
                     </div>
                   </div>
@@ -1781,7 +1786,35 @@ export default function App() {
           }
           .animate-logo-bounce { animation: logo-bounce 0.8s cubic-bezier(0.34, 1.56, 0.64, 1) forwards; }
 
-          /* Floating aura animations */
+          /* Landing page aura animations - more noticeable movement */
+          @keyframes landing-aura-1 {
+            0%, 100% { transform: translate(0, 0) scale(1); }
+            20% { transform: translate(80px, -50px) scale(1.08); }
+            40% { transform: translate(40px, 40px) scale(0.95); }
+            60% { transform: translate(-60px, 20px) scale(1.05); }
+            80% { transform: translate(-30px, -40px) scale(0.98); }
+          }
+          @keyframes landing-aura-2 {
+            0%, 100% { transform: translate(0, 0) scale(1); }
+            25% { transform: translate(-70px, 60px) scale(1.1); }
+            50% { transform: translate(50px, 30px) scale(0.92); }
+            75% { transform: translate(30px, -50px) scale(1.04); }
+          }
+          @keyframes landing-aura-3 {
+            0%, 100% { transform: translate(0, 0) scale(1); }
+            33% { transform: translate(50px, -70px) scale(1.06); }
+            66% { transform: translate(-80px, 40px) scale(0.94); }
+          }
+          @keyframes landing-aura-4 {
+            0%, 100% { transform: translate(0, 0) scale(1); opacity: 0.12; }
+            50% { transform: translate(-40px, -60px) scale(1.12); opacity: 0.18; }
+          }
+          .landing-aura-1 { animation: landing-aura-1 30s ease-in-out infinite; }
+          .landing-aura-2 { animation: landing-aura-2 35s ease-in-out infinite; }
+          .landing-aura-3 { animation: landing-aura-3 25s ease-in-out infinite; }
+          .landing-aura-4 { animation: landing-aura-4 20s ease-in-out infinite; }
+
+          /* Floating aura animations (legacy) */
           @keyframes float-slow {
             0%, 100% { transform: translate(0, 0) scale(1); }
             33% { transform: translate(30px, -20px) scale(1.05); }
@@ -1862,17 +1895,61 @@ export default function App() {
           }
           .animate-breathe { animation: breathe 8s ease-in-out infinite; }
 
+          /* Smooth continuous aura animations - won't restart on interaction */
+          @keyframes aura-float-1 {
+            0%, 100% { transform: translate(0, 0) scale(1); }
+            20% { transform: translate(60px, -40px) scale(1.05); }
+            40% { transform: translate(30px, 30px) scale(0.98); }
+            60% { transform: translate(-50px, 10px) scale(1.03); }
+            80% { transform: translate(-20px, -50px) scale(0.97); }
+          }
+          @keyframes aura-float-2 {
+            0%, 100% { transform: translate(0, 0) scale(1); }
+            25% { transform: translate(-40px, 50px) scale(1.04); }
+            50% { transform: translate(50px, 20px) scale(0.96); }
+            75% { transform: translate(20px, -40px) scale(1.02); }
+          }
+          @keyframes aura-float-3 {
+            0%, 100% { transform: translate(0, 0) scale(1); }
+            33% { transform: translate(30px, -60px) scale(1.06); }
+            66% { transform: translate(-60px, 30px) scale(0.94); }
+          }
+          @keyframes aura-pulse {
+            0%, 100% { transform: translate(-50%, -50%) scale(1); opacity: 0.06; }
+            50% { transform: translate(-50%, -50%) scale(1.2); opacity: 0.09; }
+          }
+          .aura-float-1 { animation: aura-float-1 45s ease-in-out infinite; }
+          .aura-float-2 { animation: aura-float-2 55s ease-in-out infinite; }
+          .aura-float-3 { animation: aura-float-3 35s ease-in-out infinite; }
+          .aura-pulse { animation: aura-pulse 10s ease-in-out infinite; }
+
           /* Form card subtle glow */
           .form-card-glow {
             box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5), 0 0 80px rgba(139, 92, 246, 0.03);
           }
 
-          /* Form entrance animation */
+          /* Form entrance animation - more prominent slide-in */
           @keyframes form-entrance {
-            0% { opacity: 0; transform: translateY(30px) scale(0.98); }
-            100% { opacity: 1; transform: translateY(0) scale(1); }
+            0% { opacity: 0; transform: translateY(60px) scale(0.95); filter: blur(4px); }
+            60% { opacity: 0.9; transform: translateY(-5px) scale(1.01); filter: blur(0); }
+            100% { opacity: 1; transform: translateY(0) scale(1); filter: blur(0); }
           }
-          .animate-form-entrance { animation: form-entrance 0.8s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
+          .animate-form-entrance { animation: form-entrance 1s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
+
+          /* Title slide-in animation */
+          @keyframes title-slide-in {
+            0% { opacity: 0; transform: translateY(-30px) scale(0.95); filter: blur(6px); }
+            60% { opacity: 0.9; transform: translateY(4px) scale(1.01); filter: blur(0); }
+            100% { opacity: 1; transform: translateY(0) scale(1); filter: blur(0); }
+          }
+          .animate-title-slide-in { animation: title-slide-in 0.8s cubic-bezier(0.16, 1, 0.3, 1) 0.3s forwards; opacity: 0; }
+
+          /* Subtitle slide-in animation */
+          @keyframes subtitle-slide-in {
+            0% { opacity: 0; transform: translateY(15px); }
+            100% { opacity: 1; transform: translateY(0); }
+          }
+          .animate-subtitle-slide-in { animation: subtitle-slide-in 0.6s ease-out 0.5s forwards; opacity: 0; }
 
           /* Text reveal animations */
           @keyframes text-reveal {
@@ -1941,15 +2018,42 @@ export default function App() {
       <div className="min-h-screen relative transition-all duration-1000">
         <DynamicBackground moodId={selectedMood} /><NoiseOverlay />
 
-        {/* Ambient floating orbs for depth and motion */}
-        <div className="fixed inset-0 overflow-hidden pointer-events-none z-0">
-          <div className="absolute w-[600px] h-[600px] rounded-full blur-[150px] animate-drift-slow opacity-[0.08]"
-            style={{ background: `radial-gradient(circle, ${moods.find(m => m.id === selectedMood)?.colors[0] || '#7c3aed'} 0%, transparent 70%)`, top: '-20%', left: '-15%' }} />
-          <div className="absolute w-[500px] h-[500px] rounded-full blur-[120px] animate-drift-slower opacity-[0.06]"
-            style={{ background: `radial-gradient(circle, ${moods.find(m => m.id === selectedMood)?.colors[1] || '#c4b5fd'} 0%, transparent 70%)`, bottom: '-15%', right: '-10%' }} />
-          <div className="absolute w-[300px] h-[300px] rounded-full blur-[80px] animate-breathe opacity-[0.05]"
-            style={{ background: 'radial-gradient(circle, rgba(255,255,255,0.4) 0%, transparent 70%)', top: '30%', left: '50%' }} />
-        </div>
+        {/* Mobile depth enhancement - extra layering for Safari/iOS */}
+        {isSafari && (
+          <>
+            {/* Soft gradient mesh for depth */}
+            <div className="fixed inset-0 pointer-events-none z-[1]" style={{
+              background: `
+                radial-gradient(ellipse 120% 80% at 20% 10%, rgba(139, 92, 246, 0.12) 0%, transparent 50%),
+                radial-gradient(ellipse 100% 100% at 80% 90%, rgba(236, 72, 153, 0.08) 0%, transparent 50%),
+                radial-gradient(ellipse 80% 60% at 50% 50%, rgba(255, 255, 255, 0.03) 0%, transparent 40%)
+              `
+            }} />
+            {/* Subtle animated shimmer */}
+            <div className="fixed inset-0 pointer-events-none z-[1] mobile-shimmer opacity-[0.06]" />
+          </>
+        )}
+
+        {/* Ambient floating aura orbs - continuous smooth animation */}
+        {(() => {
+          const moodColors = moods.find(m => m.id === selectedMood)?.colors || ['#7c3aed', '#c4b5fd'];
+          return (
+            <div className="fixed inset-0 overflow-hidden pointer-events-none z-0" key="aura-container">
+              {/* Large primary orb */}
+              <div className="absolute w-[700px] h-[700px] rounded-full blur-[180px] aura-float-1 opacity-[0.12]"
+                style={{ background: `radial-gradient(circle, ${moodColors[0]} 0%, transparent 70%)`, top: '-25%', left: '-20%' }} />
+              {/* Secondary orb */}
+              <div className="absolute w-[600px] h-[600px] rounded-full blur-[150px] aura-float-2 opacity-[0.10]"
+                style={{ background: `radial-gradient(circle, ${moodColors[1]} 0%, transparent 70%)`, bottom: '-20%', right: '-15%' }} />
+              {/* Accent orb */}
+              <div className="absolute w-[400px] h-[400px] rounded-full blur-[100px] aura-float-3 opacity-[0.08]"
+                style={{ background: `radial-gradient(circle, ${moodColors[0]}80 0%, transparent 70%)`, top: '40%', right: '20%' }} />
+              {/* Central glow */}
+              <div className="absolute w-[500px] h-[500px] rounded-full blur-[120px] aura-pulse opacity-[0.06]"
+                style={{ background: 'radial-gradient(circle, rgba(255,255,255,0.5) 0%, transparent 70%)', top: '30%', left: '40%' }} />
+            </div>
+          );
+        })()}
 
         {/* Image format error notification */}
         {imageFormatError && (
@@ -1971,9 +2075,6 @@ export default function App() {
             onClose={() => setShowTransitionPicker(null)}
           />
         )}
-        {shareModalOpen && shareUrl && (
-          <ShareModal url={shareUrl} onClose={() => setShareModalOpen(false)} />
-        )}
         {audioRef.current && (<button onClick={toggleMusic} className="fixed top-4 sm:top-6 right-4 sm:right-6 p-2 sm:p-3 bg-white/10 hover:bg-white/20 rounded-full text-white transition-colors backdrop-blur-sm border-2 border-white/20 z-50">{audioPlaying ? <Volume2 size={18} /> : <VolumeX size={18} />}</button>)}
         
         {/* Back to home button */}
@@ -1993,17 +2094,17 @@ export default function App() {
             {/* Subtle inner glow */}
             <div className="absolute inset-0 rounded-3xl shadow-[inset_0_1px_1px_rgba(255,255,255,0.05)] pointer-events-none" />
             <div className="p-6 sm:p-8 pb-4 border-b border-white/[0.06] relative">
-              <h1 className="text-3xl sm:text-4xl md:text-5xl font-black text-white mb-2 tracking-tight text-center animate-text-reveal">Create Your Wrapped</h1>
-              <p className="text-white/60 text-base sm:text-lg text-center animate-text-reveal-delay">Track anything you want and share it with friends</p>
+              <h1 className="text-3xl sm:text-4xl md:text-5xl font-black text-white mb-2 tracking-tight text-center animate-title-slide-in">Create Your Wrapped</h1>
+              <p className="text-white/60 text-base sm:text-lg text-center animate-subtitle-slide-in">Track anything you want and share it with friends</p>
             </div>
             <div className="p-6 sm:p-8 pt-6">
               <div className="space-y-6 sm:space-y-8">
                 <div title="Pick a template to auto-fill suggested stats for your topic" className="animate-section-fade-in" style={{ animationDelay: '0.2s' }}><FieldLabel>Quick Start Templates</FieldLabel><TemplateSelector selectedTemplate={selectedTemplate} onSelect={applyTemplate} /><p className="text-white/40 text-xs mt-2 italic">Note: Switching between templates removes stats data.</p></div>
-                <div className="animate-section-fade-in" style={{ animationDelay: '0.3s' }}><FieldLabel required error={validationErrors.title}>Wrapped Title</FieldLabel><input type="text" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="My Adventures" className={`w-full px-4 sm:px-5 py-3 sm:py-4 rounded-xl bg-white/[0.06] border text-white placeholder-white/40 focus:outline-none focus:bg-white/[0.08] focus:border-white/30 focus:shadow-[0_0_20px_rgba(255,255,255,0.05)] backdrop-blur-sm font-medium text-base sm:text-lg transition-all duration-300 shadow-[inset_0_1px_2px_rgba(0,0,0,0.1)] ${validationErrors.title ? 'border-red-500/50' : 'border-white/[0.08]'}`} />{validationErrors.title && <p className="text-red-400 text-sm mt-2">Please enter a title for your Wrapped</p>}</div>
+                <div className="animate-section-fade-in" style={{ animationDelay: '0.3s' }}><FieldLabel required error={validationErrors.title}>Wrapped Title</FieldLabel><input type="text" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="My Adventures" className={`w-full px-4 sm:px-5 py-3 sm:py-4 rounded-xl bg-white/[0.06] border text-white placeholder-white/40 focus:outline-none focus:bg-white/[0.08] focus:border-white/30  backdrop-blur-sm font-medium text-base sm:text-lg transition-all duration-300 shadow-[inset_0_1px_2px_rgba(0,0,0,0.1)] ${validationErrors.title ? 'border-red-500/50' : 'border-white/[0.08]'}`} />{validationErrors.title && <p className="text-red-400 text-sm mt-2">Please enter a title for your Wrapped</p>}</div>
                 <div className="animate-section-fade-in" style={{ animationDelay: '0.4s' }}><FieldLabel>Add Cover Image <span className="text-white/40 font-normal normal-case">(optional)</span></FieldLabel><div className="flex items-center gap-4">{coverImage ? (<div className="relative"><img src={coverImage} alt="Cover Preview" className="w-32 sm:w-40 h-20 sm:h-24 object-cover rounded-xl border border-white/[0.15]" /><button onClick={() => setCoverImage(null)} className="absolute -top-2 -right-2 p-1 bg-red-500 hover:bg-red-600 rounded-full text-white transition-colors"><X size={16} /></button></div>) : (<label className="flex items-center gap-2 sm:gap-3 px-4 sm:px-5 py-3 sm:py-4 bg-white/[0.06] hover:bg-white/[0.1] rounded-xl text-white/60 transition-all duration-300 border border-white/[0.08] hover:border-white/[0.15] cursor-pointer"><ImagePlus size={20} /><span className="font-medium text-sm sm:text-base">Upload Cover Image</span><input type="file" accept="image/*" onChange={(e) => handleCoverImageUpload(e.target.files[0])} className="hidden" /></label>)}</div></div>
-                <div className="animate-section-fade-in" style={{ animationDelay: '0.5s' }}><FieldLabel required error={validationErrors.dateRange}>Date Range</FieldLabel><input type="text" value={dateRange} onChange={(e) => setDateRange(e.target.value)} placeholder="E.g., 2026 Q1, November, Fall Semester" className={`w-full px-4 sm:px-5 py-3 sm:py-4 rounded-xl bg-white/[0.06] border text-white placeholder-white/40 focus:outline-none focus:bg-white/[0.08] focus:border-white/30 focus:shadow-[0_0_20px_rgba(255,255,255,0.05)] backdrop-blur-sm font-medium text-base sm:text-lg transition-all duration-300 shadow-[inset_0_1px_2px_rgba(0,0,0,0.1)] ${validationErrors.dateRange ? 'border-red-500/50' : 'border-white/[0.08]'}`} />{validationErrors.dateRange && <p className="text-red-400 text-sm mt-2">Please enter a date range</p>}</div>
+                <div className="animate-section-fade-in" style={{ animationDelay: '0.5s' }}><FieldLabel required error={validationErrors.dateRange}>Date Range</FieldLabel><input type="text" value={dateRange} onChange={(e) => setDateRange(e.target.value)} placeholder="E.g., 2026 Q1, November, Fall Semester" className={`w-full px-4 sm:px-5 py-3 sm:py-4 rounded-xl bg-white/[0.06] border text-white placeholder-white/40 focus:outline-none focus:bg-white/[0.08] focus:border-white/30  backdrop-blur-sm font-medium text-base sm:text-lg transition-all duration-300 shadow-[inset_0_1px_2px_rgba(0,0,0,0.1)] ${validationErrors.dateRange ? 'border-red-500/50' : 'border-white/[0.08]'}`} />{validationErrors.dateRange && <p className="text-red-400 text-sm mt-2">Please enter a date range</p>}</div>
 
-                <div className="animate-section-fade-in" style={{ animationDelay: '0.6s' }}><FieldLabel>Background Music</FieldLabel><select value={selectedMusic} onChange={(e) => handleMusicSelect(e.target.value)} className="w-full px-4 sm:px-5 py-3 sm:py-4 rounded-xl bg-white/[0.06] border border-white/[0.08] text-white focus:outline-none focus:bg-white/[0.08] focus:border-white/30 focus:shadow-[0_0_20px_rgba(255,255,255,0.05)] backdrop-blur-sm font-medium text-base sm:text-lg transition-all duration-300 shadow-[inset_0_1px_2px_rgba(0,0,0,0.1)]">{musicTracks.map(track => (<option key={track.id} value={track.id} className="bg-gray-900 text-white">{track.name}</option>))}</select>{selectedMusic === 'custom' && (<label className="mt-3 flex items-center gap-3 px-4 py-3 bg-white/[0.06] hover:bg-white/[0.1] rounded-xl text-white/60 transition-all duration-300 border border-dashed border-white/[0.15] hover:border-white/30 cursor-pointer"><Upload size={20} /><span className="font-medium">{customMusicFile ? customMusicFile.name : 'Choose audio file (.mp3, .wav, etc.)'}</span><input type="file" accept="audio/*" onChange={(e) => handleCustomMusicUpload(e.target.files[0])} className="hidden" /></label>)}{audioRef.current && (<p className="text-white/40 text-sm mt-2">Use the speaker button to play/pause music</p>)}</div>
+                <div className="animate-section-fade-in" style={{ animationDelay: '0.6s' }}><FieldLabel>Background Music</FieldLabel><select value={selectedMusic} onChange={(e) => handleMusicSelect(e.target.value)} className="w-full px-4 sm:px-5 py-3 sm:py-4 rounded-xl bg-white/[0.06] border border-white/[0.08] text-white focus:outline-none focus:bg-white/[0.08] focus:border-white/30  backdrop-blur-sm font-medium text-base sm:text-lg transition-all duration-300 shadow-[inset_0_1px_2px_rgba(0,0,0,0.1)]">{musicTracks.map(track => (<option key={track.id} value={track.id} className="bg-gray-900 text-white">{track.name}</option>))}</select>{selectedMusic === 'custom' && (<label className="mt-3 flex items-center gap-3 px-4 py-3 bg-white/[0.06] hover:bg-white/[0.1] rounded-xl text-white/60 transition-all duration-300 border border-dashed border-white/[0.15] hover:border-white/30 cursor-pointer"><Upload size={20} /><span className="font-medium">{customMusicFile ? customMusicFile.name : 'Choose audio file (.mp3, .wav, etc.)'}</span><input type="file" accept="audio/*" onChange={(e) => handleCustomMusicUpload(e.target.files[0])} className="hidden" /></label>)}{audioRef.current && (<p className="text-white/40 text-sm mt-2">Use the speaker button to play/pause music</p>)}</div>
 
                 {/* Stats with transition buttons between them */}
                 <div className="animate-section-fade-in" style={{ animationDelay: '0.7s' }}>
@@ -2014,10 +2115,10 @@ export default function App() {
                       <React.Fragment key={index}>
                         <div className="relative space-y-3 p-4 pb-10 bg-white/[0.03] rounded-xl border border-white/[0.06] transition-all duration-300 hover:bg-white/[0.04] hover:border-white/[0.1]">
                           <div className="flex flex-col sm:flex-row gap-3">
-                            <input type="text" value={stat.label} onChange={(e) => updateStat(index, 'label', e.target.value)} placeholder="Stat Label (e.g., Books Read)" className={`flex-1 px-4 sm:px-5 py-3 sm:py-4 rounded-xl bg-white/[0.06] border text-white placeholder-white/40 focus:outline-none focus:bg-white/[0.08] focus:border-white/30 focus:shadow-[0_0_15px_rgba(255,255,255,0.04)] backdrop-blur-sm font-bold text-sm sm:text-base transition-all duration-300 shadow-[inset_0_1px_2px_rgba(0,0,0,0.1)] ${validationErrors[`stat-${index}-label`] ? 'border-red-500/50' : 'border-white/[0.08]'}`} />
-                            <input type="text" value={stat.value} onChange={(e) => updateStat(index, 'value', e.target.value)} placeholder="Value (e.g., 42, Lagos, A+)" className={`flex-1 px-4 sm:px-5 py-3 sm:py-4 rounded-xl bg-white/[0.06] border text-white placeholder-white/40 focus:outline-none focus:bg-white/[0.08] focus:border-white/30 focus:shadow-[0_0_15px_rgba(255,255,255,0.04)] backdrop-blur-sm font-medium text-sm sm:text-base transition-all duration-300 shadow-[inset_0_1px_2px_rgba(0,0,0,0.1)] ${validationErrors[`stat-${index}-value`] ? 'border-red-500/50' : 'border-white/[0.08]'}`} />
+                            <input type="text" value={stat.label} onChange={(e) => updateStat(index, 'label', e.target.value)} placeholder="Stat Label (e.g., Books Read)" className={`flex-1 px-4 sm:px-5 py-3 sm:py-4 rounded-xl bg-white/[0.06] border text-white placeholder-white/40 focus:outline-none focus:bg-white/[0.08] focus:border-white/30  backdrop-blur-sm font-bold text-sm sm:text-base transition-all duration-300 shadow-[inset_0_1px_2px_rgba(0,0,0,0.1)] ${validationErrors[`stat-${index}-label`] ? 'border-red-500/50' : 'border-white/[0.08]'}`} />
+                            <input type="text" value={stat.value} onChange={(e) => updateStat(index, 'value', e.target.value)} placeholder="Value (e.g., 42, Lagos, A+)" className={`flex-1 px-4 sm:px-5 py-3 sm:py-4 rounded-xl bg-white/[0.06] border text-white placeholder-white/40 focus:outline-none focus:bg-white/[0.08] focus:border-white/30  backdrop-blur-sm font-medium text-sm sm:text-base transition-all duration-300 shadow-[inset_0_1px_2px_rgba(0,0,0,0.1)] ${validationErrors[`stat-${index}-value`] ? 'border-red-500/50' : 'border-white/[0.08]'}`} />
                           </div>
-                          <input type="text" value={stat.note} onChange={(e) => updateStat(index, 'note', e.target.value)} placeholder="Extra Info (optional)" className="w-full px-4 sm:px-5 py-2 sm:py-3 rounded-xl bg-white/[0.06] border border-white/[0.08] text-white placeholder-white/40 focus:outline-none focus:bg-white/[0.08] focus:border-white/30 focus:shadow-[0_0_15px_rgba(255,255,255,0.04)] backdrop-blur-sm font-medium text-sm transition-all duration-300 shadow-[inset_0_1px_2px_rgba(0,0,0,0.1)]" />
+                          <input type="text" value={stat.note} onChange={(e) => updateStat(index, 'note', e.target.value)} placeholder="Extra Info (optional)" className="w-full px-4 sm:px-5 py-2 sm:py-3 rounded-xl bg-white/[0.06] border border-white/[0.08] text-white placeholder-white/40 focus:outline-none focus:bg-white/[0.08] focus:border-white/30  backdrop-blur-sm font-medium text-sm transition-all duration-300 shadow-[inset_0_1px_2px_rgba(0,0,0,0.1)]" />
                           <div className="flex items-center gap-2" title="Highlighted stats get a special golden glow and falling stars animation">
                             <input type="checkbox" id={`highlight-${index}`} checked={stat.isHighlight} onChange={(e) => updateStat(index, 'isHighlight', e.target.checked)} className="w-5 h-5 rounded border-2 border-white/20 bg-white/10 checked:bg-yellow-400 checked:border-yellow-400 cursor-pointer" />
                             <label htmlFor={`highlight-${index}`} className="text-white/80 text-sm font-medium cursor-pointer flex items-center gap-2"><Star size={16} className="text-yellow-300 fill-yellow-300" />Highlight this Stat</label>
@@ -2107,6 +2208,87 @@ export default function App() {
             </div>
           </div>
         </div>
+
+        {/* Create page animations */}
+        <style>{`
+          /* Aura floating animations for Create page */
+          @keyframes aura-float-1 {
+            0%, 100% { transform: translate(0, 0) scale(1); }
+            20% { transform: translate(60px, -40px) scale(1.05); }
+            40% { transform: translate(30px, 30px) scale(0.98); }
+            60% { transform: translate(-50px, 10px) scale(1.03); }
+            80% { transform: translate(-20px, -50px) scale(0.97); }
+          }
+          @keyframes aura-float-2 {
+            0%, 100% { transform: translate(0, 0) scale(1); }
+            25% { transform: translate(-40px, 50px) scale(1.04); }
+            50% { transform: translate(50px, 20px) scale(0.96); }
+            75% { transform: translate(20px, -40px) scale(1.02); }
+          }
+          @keyframes aura-float-3 {
+            0%, 100% { transform: translate(0, 0) scale(1); }
+            33% { transform: translate(30px, -60px) scale(1.06); }
+            66% { transform: translate(-60px, 30px) scale(0.94); }
+          }
+          @keyframes aura-pulse {
+            0%, 100% { opacity: 0.06; }
+            50% { opacity: 0.12; }
+          }
+          .aura-float-1 { animation: aura-float-1 45s ease-in-out infinite; }
+          .aura-float-2 { animation: aura-float-2 55s ease-in-out infinite; }
+          .aura-float-3 { animation: aura-float-3 35s ease-in-out infinite; }
+          .aura-pulse { animation: aura-pulse 8s ease-in-out infinite; }
+
+          /* Mobile shimmer for depth */
+          @keyframes mobile-shimmer {
+            0%, 100% {
+              background: radial-gradient(ellipse 60% 40% at 30% 30%, rgba(255,255,255,0.15) 0%, transparent 60%);
+            }
+            50% {
+              background: radial-gradient(ellipse 60% 40% at 70% 60%, rgba(255,255,255,0.15) 0%, transparent 60%);
+            }
+          }
+          .mobile-shimmer { animation: mobile-shimmer 15s ease-in-out infinite; }
+
+          /* Form frame glow animation */
+          @keyframes form-glow-in {
+            0% { box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5), 0 0 0px rgba(139, 92, 246, 0); }
+            100% { box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5), 0 0 60px rgba(139, 92, 246, 0.08), 0 0 120px rgba(139, 92, 246, 0.04); }
+          }
+          @keyframes form-glow-pulse {
+            0%, 100% { box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5), 0 0 60px rgba(139, 92, 246, 0.06), 0 0 120px rgba(139, 92, 246, 0.03); }
+            50% { box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5), 0 0 80px rgba(139, 92, 246, 0.1), 0 0 150px rgba(139, 92, 246, 0.05); }
+          }
+          .form-card-glow {
+            animation: form-glow-in 1s ease-out forwards, form-glow-pulse 6s ease-in-out 1s infinite;
+          }
+
+          /* Form entrance animation */
+          @keyframes form-entrance {
+            0% { opacity: 0; transform: translateY(50px) scale(0.96); }
+            100% { opacity: 1; transform: translateY(0) scale(1); }
+          }
+          .animate-form-entrance { animation: form-entrance 0.8s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
+
+          /* Title animations */
+          @keyframes title-slide-in {
+            0% { opacity: 0; transform: translateY(-25px); }
+            100% { opacity: 1; transform: translateY(0); }
+          }
+          @keyframes subtitle-slide-in {
+            0% { opacity: 0; transform: translateY(15px); }
+            100% { opacity: 1; transform: translateY(0); }
+          }
+          .animate-title-slide-in { animation: title-slide-in 0.7s cubic-bezier(0.16, 1, 0.3, 1) 0.2s forwards; opacity: 0; }
+          .animate-subtitle-slide-in { animation: subtitle-slide-in 0.6s ease-out 0.4s forwards; opacity: 0; }
+
+          /* Section fade animations */
+          @keyframes section-fade-in {
+            0% { opacity: 0; transform: translateY(12px); }
+            100% { opacity: 1; transform: translateY(0); }
+          }
+          .animate-section-fade-in { animation: section-fade-in 0.5s ease-out forwards; opacity: 0; }
+        `}</style>
       </div>
     );
   }
@@ -2151,31 +2333,31 @@ export default function App() {
               // Determine if this is a drumroll slide that just revealed
               const isDrumrollSlide = drumrollReveal && activeTransition === 'drumroll';
               // Regular text reveal for default transition slides (all stats including highlights)
-              // Always show text animations on non-transition slides (removed textPlayedSlides check)
-              const showTextReveal = activeTransition !== 'impact' && activeTransition !== 'drumroll' && !impactAlreadyPlayed;
+              // Only show animations if this slide hasn't been animated yet
+              const textAlreadyPlayed = textPlayedSlides.has(currentSlide);
+              const showTextReveal = activeTransition !== 'impact' && activeTransition !== 'drumroll' && !impactAlreadyPlayed && !textAlreadyPlayed;
               // Cycle through 3 animation themes for variety on regular slides
               const textTheme = slideTextTheme[currentSlide] ?? currentSlideInfo.index % 3;
-              // Highlight slides get their own special elevated animation
-              const isHighlightWithDefaultTransition = stat.isHighlight && (!transitions[currentSlide] || (transitions[currentSlide]?.type || transitions[currentSlide]) === 'default');
-              // Regular slide animations (randomized) - for non-highlight slides
-              const labelAnim = showTextReveal && !isHighlightWithDefaultTransition ? (textTheme === 0 ? 'animate-text-fade-in' : textTheme === 1 ? 'animate-text-slide-left' : 'animate-text-zoom-in') : '';
-              const valueAnim = showTextReveal && !isHighlightWithDefaultTransition ? (textTheme === 0 ? 'animate-text-reveal' : textTheme === 1 ? 'animate-text-slide-right' : 'animate-text-zoom-reveal') : '';
-              const noteAnim = showTextReveal && !isHighlightWithDefaultTransition ? (textTheme === 0 ? 'animate-text-fade-in-late' : textTheme === 1 ? 'animate-text-slide-left-late' : 'animate-text-zoom-late') : '';
-              // Special highlight animations - elevated, intentional, more expressive
-              const highlightLabelAnim = showTextReveal && isHighlightWithDefaultTransition ? 'animate-highlight-label' : '';
-              const highlightValueAnim = showTextReveal && isHighlightWithDefaultTransition ? 'animate-highlight-value' : '';
-              const highlightNoteAnim = showTextReveal && isHighlightWithDefaultTransition ? 'animate-highlight-note' : '';
+              // Regular slide animations (randomized) - for ALL stats including highlights
+              const labelAnim = showTextReveal ? (textTheme === 0 ? 'animate-text-fade-in' : textTheme === 1 ? 'animate-text-slide-left' : 'animate-text-zoom-in') : '';
+              const valueAnim = showTextReveal ? (textTheme === 0 ? 'animate-text-reveal' : textTheme === 1 ? 'animate-text-slide-right' : 'animate-text-zoom-reveal') : '';
+              const noteAnim = showTextReveal ? (textTheme === 0 ? 'animate-text-fade-in-late' : textTheme === 1 ? 'animate-text-slide-left-late' : 'animate-text-zoom-late') : '';
+              // Highlights also get glow + falling stars in addition to text animations
               // Drumroll uses a consistent zoom-in reveal animation
               const drumrollLabelAnim = isDrumrollSlide ? 'animate-drumroll-text-label' : '';
               const drumrollValueAnim = isDrumrollSlide ? 'animate-drumroll-text-value' : '';
               const drumrollNoteAnim = isDrumrollSlide ? 'animate-drumroll-text-note' : '';
+              // Frame glow style - highlights get golden glow, regular stats get subtle white glow
+              const frameGlowStyle = stat.isHighlight
+                ? { boxShadow: '0 0 60px rgba(250, 204, 21, 0.4), 0 0 100px rgba(250, 204, 21, 0.2), inset 0 0 60px rgba(250, 204, 21, 0.1)', animation: 'glow-breathe 3s ease-in-out infinite' }
+                : { boxShadow: '0 0 40px rgba(255, 255, 255, 0.1), 0 0 80px rgba(255, 255, 255, 0.05), inset 0 0 40px rgba(255, 255, 255, 0.03)' };
               return (
-                <div className={`bg-black/40 backdrop-blur-2xl rounded-3xl p-6 sm:p-8 text-center shadow-2xl border-2 min-h-[600px] sm:min-h-[650px] flex flex-col justify-between relative ${stat.isHighlight ? 'border-yellow-400/60' : 'border-white/30'} ${activeTransition === 'drumroll' ? 'drumroll-glow' : ''} ${activeTransition === 'impact' ? 'animate-impact-slam' : ''}`} style={stat.isHighlight && !isFirstView ? { boxShadow: '0 0 60px rgba(250, 204, 21, 0.4), 0 0 100px rgba(250, 204, 21, 0.2), inset 0 0 60px rgba(250, 204, 21, 0.1)', animation: 'glow-breathe 3s ease-in-out infinite' } : {}}>
+                <div className={`bg-black/40 backdrop-blur-2xl rounded-3xl p-6 sm:p-8 text-center shadow-2xl border-2 min-h-[600px] sm:min-h-[650px] flex flex-col justify-between relative ${stat.isHighlight ? 'border-yellow-400/60' : 'border-white/30'} ${activeTransition === 'drumroll' ? 'drumroll-glow' : ''} ${activeTransition === 'impact' ? 'animate-impact-slam' : ''}`} style={frameGlowStyle}>
                   {activeTransition === 'impact' && <ImpactDots />}
                   {showDrumrollGlitter && <DrumrollGlitter />}
-                  {stat.isHighlight && <FallingStars />}
+                  {stat.isHighlight && isFirstView && <FallingStars key={`stars-${currentSlideInfo.index}`} />}
                   {!stat.isHighlight && !isLongText && !stat.image && getDecorativeShapes(currentSlideInfo.index)}
-                  <div className={`flex-1 flex flex-col justify-center space-y-4 sm:space-y-6 relative z-10 ${activeTransition === 'impact' ? 'animate-impact-text' : ''}`}>{stat.image && <div className="mb-4"><img src={stat.image} alt={stat.label} className="w-full max-w-sm mx-auto h-48 sm:h-64 object-cover rounded-2xl shadow-2xl border-2 border-white/20" /></div>}<div className={`text-white/70 text-lg sm:text-2xl font-bold uppercase tracking-wider ${labelAnim} ${highlightLabelAnim} ${drumrollLabelAnim}`}>{stat.label}</div><div className={`text-white ${valueAnim} ${highlightValueAnim} ${drumrollValueAnim}`}>{formatValue(stat.value)}</div>{stat.note && <div className={`text-white/50 text-base sm:text-lg italic mt-4 max-w-md mx-auto px-2 ${noteAnim} ${highlightNoteAnim} ${drumrollNoteAnim}`}>({stat.note})</div>}</div>
+                  <div className={`flex-1 flex flex-col justify-center space-y-4 sm:space-y-6 relative z-10 ${activeTransition === 'impact' ? 'animate-impact-text' : ''}`}>{stat.image && <div className="mb-4"><img src={stat.image} alt={stat.label} className="w-full max-w-sm mx-auto h-48 sm:h-64 object-cover rounded-2xl shadow-2xl border-2 border-white/20" /></div>}<div className={`text-white/70 text-lg sm:text-2xl font-bold uppercase tracking-wider ${labelAnim} ${drumrollLabelAnim}`}>{stat.label}</div><div className={`text-white ${valueAnim} ${drumrollValueAnim}`}>{formatValue(stat.value)}</div>{stat.note && <div className={`text-white/50 text-base sm:text-lg italic mt-4 max-w-md mx-auto px-2 ${noteAnim} ${drumrollNoteAnim}`}>({stat.note})</div>}</div>
                   <div className="text-white/30 font-black text-sm uppercase tracking-widest mt-4 relative z-10">{dateRange || 'Wrapped'}</div>
                   <style>{`@keyframes glow-breathe { 0%, 100% { box-shadow: 0 0 60px rgba(250, 204, 21, 0.4), 0 0 100px rgba(250, 204, 21, 0.2), inset 0 0 60px rgba(250, 204, 21, 0.1); } 50% { box-shadow: 0 0 80px rgba(250, 204, 21, 0.6), 0 0 120px rgba(250, 204, 21, 0.3), inset 0 0 80px rgba(250, 204, 21, 0.15); } }`}</style>
                 </div>
@@ -2442,6 +2624,11 @@ export default function App() {
         .custom-scrollbar::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.3); border-radius: 3px; }
         .custom-scrollbar::-webkit-scrollbar-thumb:hover { background: rgba(255, 255, 255, 0.5); }
       `}</style>
+
+      {/* Share Modal - shows after saving wrap */}
+      {shareModalOpen && shareUrl && (
+        <ShareModal url={shareUrl} onClose={() => setShareModalOpen(false)} />
+      )}
     </div>
   );
 }
