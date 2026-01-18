@@ -256,8 +256,8 @@ export default function App() {
 
   const unsupportedFormats = ['image/heic', 'image/heif'];
 
-  // Compress image to reduce payload size for API
-  const compressImage = useCallback((file, maxWidth = 1200, quality = 0.8) => {
+  // Compress image to reduce payload size for API (Vercel limit is 4.5MB)
+  const compressImage = useCallback((file, maxWidth = 800, quality = 0.6) => {
     return new Promise((resolve) => {
       const reader = new FileReader();
       reader.onload = (e) => {
@@ -272,16 +272,20 @@ export default function App() {
             height = (height * maxWidth) / width;
             width = maxWidth;
           }
+          // Also limit height
+          const maxHeight = 800;
+          if (height > maxHeight) {
+            width = (width * maxHeight) / height;
+            height = maxHeight;
+          }
 
           canvas.width = width;
           canvas.height = height;
           const ctx = canvas.getContext('2d');
           ctx.drawImage(img, 0, 0, width, height);
 
-          // Convert to JPEG for better compression (unless it's a PNG with transparency)
-          const outputType = file.type === 'image/png' ? 'image/png' : 'image/jpeg';
-          const outputQuality = file.type === 'image/png' ? 0.9 : quality;
-          resolve(canvas.toDataURL(outputType, outputQuality));
+          // Always convert to JPEG for best compression
+          resolve(canvas.toDataURL('image/jpeg', quality));
         };
         img.src = e.target.result;
       };
@@ -604,22 +608,71 @@ export default function App() {
 
   const totalSlides = validContentOrder.length + validBadges.length + (hasReflection ? 1 : 0) + 2;
 
+  // Helper to re-compress a base64 image if it's too large
+  const recompressIfNeeded = useCallback(async (dataUrl, maxSizeKB = 150) => {
+    if (!dataUrl || !dataUrl.startsWith('data:')) return dataUrl;
+    // Estimate base64 size (roughly 4/3 of actual bytes)
+    const sizeKB = (dataUrl.length * 0.75) / 1024;
+    if (sizeKB <= maxSizeKB) return dataUrl;
+
+    return new Promise((resolve) => {
+      const img = new Image();
+      img.onload = () => {
+        const canvas = document.createElement('canvas');
+        let width = img.width;
+        let height = img.height;
+        const maxDim = 600; // Smaller for re-compression
+        if (width > maxDim || height > maxDim) {
+          if (width > height) {
+            height = (height * maxDim) / width;
+            width = maxDim;
+          } else {
+            width = (width * maxDim) / height;
+            height = maxDim;
+          }
+        }
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(img, 0, 0, width, height);
+        resolve(canvas.toDataURL('image/jpeg', 0.5));
+      };
+      img.onerror = () => resolve(dataUrl);
+      img.src = dataUrl;
+    });
+  }, []);
+
   // Save wrap and get shareable link
   const saveWrap = useCallback(async () => {
     if (isSaving) return;
     setIsSaving(true);
 
     try {
+      // Re-compress any images that are still too large
+      const compressedCover = await recompressIfNeeded(coverImage);
+      const compressedStats = await Promise.all(
+        validStats.map(async (stat) => ({
+          ...stat,
+          image: stat.image ? await recompressIfNeeded(stat.image) : null
+        }))
+      );
+      const compressedMoments = await Promise.all(
+        validMoments.map(async (moment) => ({
+          ...moment,
+          image: moment.image ? await recompressIfNeeded(moment.image) : null
+        }))
+      );
+
       const wrapData = {
         title,
         dateRange,
         selectedMood,
-        stats: validStats,
-        moments: validMoments,
+        stats: compressedStats,
+        moments: compressedMoments,
         badges: validBadges,
         reflection,
         contentOrder: validContentOrder,
-        coverImage,
+        coverImage: compressedCover,
         selectedMusic,
         transitions,
       };
@@ -671,7 +724,7 @@ export default function App() {
     } finally {
       setIsSaving(false);
     }
-  }, [title, dateRange, selectedMood, validStats, validMoments, validBadges, reflection, validContentOrder, coverImage, selectedMusic, transitions, isSaving]);
+  }, [title, dateRange, selectedMood, validStats, validMoments, validBadges, reflection, validContentOrder, coverImage, selectedMusic, transitions, isSaving, recompressIfNeeded]);
 
   const executeTransition = useCallback((transitionData, _direction, callback, destSlide) => {
     const transitionType = transitionData?.type || transitionData || 'default';
