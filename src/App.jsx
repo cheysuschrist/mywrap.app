@@ -256,8 +256,15 @@ export default function App() {
 
   const unsupportedFormats = ['image/heic', 'image/heif'];
 
-  // Compress image to reduce payload size for API (Vercel limit is 4.5MB)
-  const compressImage = useCallback((file, maxWidth = 800, quality = 0.6) => {
+  // Compress image with quality presets: 'high' for moments, 'medium' for stats, 'low' for cover
+  const compressImage = useCallback((file, preset = 'medium') => {
+    const presets = {
+      high: { maxWidth: 1400, maxHeight: 1400, quality: 0.85 },   // Moments - high quality
+      medium: { maxWidth: 1000, maxHeight: 1000, quality: 0.75 }, // Stats - good quality
+      low: { maxWidth: 800, maxHeight: 800, quality: 0.7 },       // Cover - smaller
+    };
+    const { maxWidth, maxHeight, quality } = presets[preset] || presets.medium;
+
     return new Promise((resolve) => {
       const reader = new FileReader();
       reader.onload = (e) => {
@@ -267,13 +274,11 @@ export default function App() {
           let width = img.width;
           let height = img.height;
 
-          // Scale down if larger than maxWidth
+          // Scale down if larger than max dimensions
           if (width > maxWidth) {
             height = (height * maxWidth) / width;
             width = maxWidth;
           }
-          // Also limit height
-          const maxHeight = 800;
           if (height > maxHeight) {
             width = (width * maxHeight) / height;
             height = maxHeight;
@@ -284,7 +289,6 @@ export default function App() {
           const ctx = canvas.getContext('2d');
           ctx.drawImage(img, 0, 0, width, height);
 
-          // Always convert to JPEG for best compression
           resolve(canvas.toDataURL('image/jpeg', quality));
         };
         img.src = e.target.result;
@@ -306,7 +310,7 @@ export default function App() {
     }
 
     if (file.type.startsWith('image/') || ['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg'].includes(fileExtension)) {
-      const compressed = await compressImage(file);
+      const compressed = await compressImage(file, 'medium'); // Stats - medium quality
       const newStats = [...stats]; newStats[index].image = compressed; setStats(newStats);
     } else {
       setImageFormatError('Unsupported image format. Please use JPEG, PNG, GIF, or WebP.');
@@ -327,7 +331,7 @@ export default function App() {
     }
 
     if (file.type.startsWith('image/') || ['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg'].includes(fileExtension)) {
-      const compressed = await compressImage(file);
+      const compressed = await compressImage(file, 'low'); // Cover - smaller
       setCoverImage(compressed);
     } else {
       setImageFormatError('Unsupported image format. Please use JPEG, PNG, GIF, or WebP.');
@@ -348,7 +352,7 @@ export default function App() {
       return;
     }
     if (file.type.startsWith('image/') || ['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg'].includes(fileExtension)) {
-      const compressed = await compressImage(file);
+      const compressed = await compressImage(file, 'high'); // Moments - high quality
       const newMoments = [...moments]; newMoments[index].image = compressed; setMoments(newMoments);
     } else {
       setImageFormatError('Unsupported image format. Please use JPEG, PNG, GIF, or WebP.');
@@ -608,38 +612,25 @@ export default function App() {
 
   const totalSlides = validContentOrder.length + validBadges.length + (hasReflection ? 1 : 0) + 2;
 
-  // Helper to re-compress a base64 image if it's too large
-  const recompressIfNeeded = useCallback(async (dataUrl, maxSizeKB = 150) => {
+  // Upload a single image to blob storage and return the URL
+  const uploadImageToBlob = useCallback(async (dataUrl, prefix = 'img') => {
     if (!dataUrl || !dataUrl.startsWith('data:')) return dataUrl;
-    // Estimate base64 size (roughly 4/3 of actual bytes)
-    const sizeKB = (dataUrl.length * 0.75) / 1024;
-    if (sizeKB <= maxSizeKB) return dataUrl;
+    // If it's already a URL (not base64), return as-is
+    if (dataUrl.startsWith('http')) return dataUrl;
 
-    return new Promise((resolve) => {
-      const img = new Image();
-      img.onload = () => {
-        const canvas = document.createElement('canvas');
-        let width = img.width;
-        let height = img.height;
-        const maxDim = 600; // Smaller for re-compression
-        if (width > maxDim || height > maxDim) {
-          if (width > height) {
-            height = (height * maxDim) / width;
-            width = maxDim;
-          } else {
-            width = (width * maxDim) / height;
-            height = maxDim;
-          }
-        }
-        canvas.width = width;
-        canvas.height = height;
-        const ctx = canvas.getContext('2d');
-        ctx.drawImage(img, 0, 0, width, height);
-        resolve(canvas.toDataURL('image/jpeg', 0.5));
-      };
-      img.onerror = () => resolve(dataUrl);
-      img.src = dataUrl;
-    });
+    try {
+      const res = await fetch(`${window.location.origin}/api/upload`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ image: dataUrl, prefix }),
+      });
+      if (!res.ok) throw new Error('Upload failed');
+      const { url } = await res.json();
+      return url;
+    } catch (err) {
+      console.error('[uploadImageToBlob] Error:', err);
+      return dataUrl; // Fall back to base64 if upload fails
+    }
   }, []);
 
   // Save wrap and get shareable link
@@ -648,34 +639,49 @@ export default function App() {
     setIsSaving(true);
 
     try {
-      // Re-compress any images that are still too large
-      const compressedCover = await recompressIfNeeded(coverImage);
-      const compressedStats = await Promise.all(
-        validStats.map(async (stat) => ({
-          ...stat,
-          image: stat.image ? await recompressIfNeeded(stat.image) : null
-        }))
+      console.log('[saveWrap] Uploading images to blob storage...');
+
+      // Upload all images in parallel to blob storage first
+      const [uploadedCover, ...uploadedStats] = await Promise.all([
+        coverImage ? uploadImageToBlob(coverImage, 'cover') : null,
+        ...validStats.map((stat, i) =>
+          stat.image ? uploadImageToBlob(stat.image, `stat-${i}`) : Promise.resolve(null)
+        )
+      ]);
+
+      const uploadedMoments = await Promise.all(
+        validMoments.map((moment, i) =>
+          moment.image ? uploadImageToBlob(moment.image, `moment-${i}`) : Promise.resolve(null)
+        )
       );
-      const compressedMoments = await Promise.all(
-        validMoments.map(async (moment) => ({
-          ...moment,
-          image: moment.image ? await recompressIfNeeded(moment.image) : null
-        }))
-      );
+
+      // Build stats with uploaded URLs
+      const statsWithUrls = validStats.map((stat, i) => ({
+        ...stat,
+        image: uploadedStats[i] || null
+      }));
+
+      // Build moments with uploaded URLs
+      const momentsWithUrls = validMoments.map((moment, i) => ({
+        ...moment,
+        image: uploadedMoments[i] || null
+      }));
 
       const wrapData = {
         title,
         dateRange,
         selectedMood,
-        stats: compressedStats,
-        moments: compressedMoments,
+        stats: statsWithUrls,
+        moments: momentsWithUrls,
         badges: validBadges,
         reflection,
         contentOrder: validContentOrder,
-        coverImage: compressedCover,
+        coverImage: uploadedCover,
         selectedMusic,
         transitions,
       };
+
+      console.log('[saveWrap] Images uploaded, saving wrap data...');
 
       // Use absolute URL to ensure mobile browsers resolve correctly
       const apiUrl = `${window.location.origin}/api/wraps/create`;
@@ -724,7 +730,7 @@ export default function App() {
     } finally {
       setIsSaving(false);
     }
-  }, [title, dateRange, selectedMood, validStats, validMoments, validBadges, reflection, validContentOrder, coverImage, selectedMusic, transitions, isSaving, recompressIfNeeded]);
+  }, [title, dateRange, selectedMood, validStats, validMoments, validBadges, reflection, validContentOrder, coverImage, selectedMusic, transitions, isSaving, uploadImageToBlob]);
 
   const executeTransition = useCallback((transitionData, _direction, callback, destSlide) => {
     const transitionType = transitionData?.type || transitionData || 'default';
