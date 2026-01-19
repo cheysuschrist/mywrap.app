@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
-import { Share2, Plus, Trash2, ArrowRight, ArrowLeft, Sparkles, Volume2, VolumeX, Upload, X, Star, Edit3, ImagePlus, Book, Plane, Heart, GraduationCap, Film, Dumbbell, Lock, Bell, Check, ChevronRight, Lightbulb, Camera, Link, Copy, Loader2 } from 'lucide-react';
+import { Share2, Plus, Trash2, ArrowRight, ArrowLeft, Sparkles, Volume2, VolumeX, Upload, X, Star, Edit3, ImagePlus, Book, Plane, Heart, GraduationCap, Film, Dumbbell, Lock, Bell, Check, ChevronRight, Lightbulb, Camera, Link, Copy, Loader2, GripVertical, Palette } from 'lucide-react';
 
 export default function App() {
   const [step, setStep] = useState('home');
@@ -66,6 +66,16 @@ export default function App() {
     }
     return false;
   });
+
+  // CAW (Create a Wrapped) slide-based builder state
+  const [cawSlide, setCawSlide] = useState(0); // 0: Basics, 1: Build, 2: Finishing Touches
+  const [cawDirection, setCawDirection] = useState('next');
+  const [customColor, setCustomColor] = useState(null); // User's custom color override
+  const [showColorPicker, setShowColorPicker] = useState(false);
+  const [showTemplateDialog, setShowTemplateDialog] = useState(null); // template id when dialog is open
+
+  // Drag-and-drop state for content reordering
+  const [draggedContentIndex, setDraggedContentIndex] = useState(null);
 
   // Scroll state for hiding nav buttons
   const [isScrolled, setIsScrolled] = useState(false);
@@ -155,12 +165,92 @@ export default function App() {
     { id: 'emerald', name: 'Emerald', color: '#34d399', glow: 'rgba(52, 211, 153, 0.6)' },
     { id: 'white', name: 'White', color: '#f8fafc', glow: 'rgba(248, 250, 252, 0.5)' },
   ];
-  
+
+  // Color presets for CAW color picker
+  const colorPresets = [
+    { id: 'twilight', color: '#7c3aed', name: 'Twilight' },
+    { id: 'crimson', color: '#dc2626', name: 'Crimson' },
+    { id: 'ocean', color: '#2563eb', name: 'Ocean' },
+    { id: 'forest', color: '#16a34a', name: 'Forest' },
+    { id: 'golden', color: '#d97706', name: 'Golden' },
+    { id: 'rose', color: '#ec4899', name: 'Rose' },
+    { id: 'cyan', color: '#06b6d4', name: 'Cyan' },
+    { id: 'midnight', color: '#171717', name: 'Midnight' },
+  ];
+
+  // Get effective color (custom override or mood-based)
+  const getEffectiveColor = useCallback(() => {
+    if (customColor) return customColor;
+    const mood = moods.find(m => m.id === selectedMood);
+    return mood?.colors[0] || '#7c3aed';
+  }, [customColor, selectedMood]);
+
+  // Get background colors based on effective color
+  const getEffectiveBgColors = useCallback(() => {
+    if (customColor) {
+      // Generate darker shades from custom color for background
+      return [
+        customColor + '20', // 12% opacity
+        customColor + '15', // 8% opacity
+        customColor + '10', // 6% opacity
+      ];
+    }
+    const mood = moods.find(m => m.id === selectedMood);
+    return mood?.bgColors || ['#2e1065', '#3b0764', '#4a044e'];
+  }, [customColor, selectedMood]);
+
   const [customMusicFile, setCustomMusicFile] = useState(null);
 
   const getMoodColors = (moodId) => moods.find(m => m.id === moodId)?.colors || ['#7c3aed', '#c4b5fd'];
   const getMoodBgColors = (moodId) => moods.find(m => m.id === moodId)?.bgColors || ['#2e1065', '#3b0764', '#4a044e'];
 
+  // CAW Navigation
+  const cawSlideNames = ['Basics', 'Build', 'Finishing Touches'];
+
+  const nextCawSlide = useCallback(() => {
+    if (cawSlide < 2) {
+      setCawDirection('next');
+      setCawSlide(prev => prev + 1);
+    }
+  }, [cawSlide]);
+
+  const prevCawSlide = useCallback(() => {
+    if (cawSlide > 0) {
+      setCawDirection('prev');
+      setCawSlide(prev => prev - 1);
+    }
+  }, [cawSlide]);
+
+  const goToCawSlide = useCallback((index) => {
+    if (index !== cawSlide && index >= 0 && index <= 2) {
+      setCawDirection(index > cawSlide ? 'next' : 'prev');
+      setCawSlide(index);
+    }
+  }, [cawSlide]);
+
+  // Validate CAW slide before proceeding
+  const canProceedFromSlide = useCallback((slideIndex) => {
+    if (slideIndex === 0) {
+      // Basics: need title
+      return title.trim().length > 0;
+    }
+    if (slideIndex === 1) {
+      // Build: need at least one stat or moment with content
+      const hasValidStat = stats.some(s => s.label.trim() && s.value.trim());
+      const hasValidMoment = moments.some(m => m.image);
+      return hasValidStat || hasValidMoment;
+    }
+    return true;
+  }, [title, stats, moments]);
+
+  // Check if user has entered actual data (values or images), not just empty template labels
+  const hasUserData = useCallback(() => {
+    const hasStatData = stats.some(s => s.value.trim() !== '' || s.image);
+    const hasMomentData = moments.some(m => m.image);
+    return hasStatData || hasMomentData;
+  }, [stats, moments]);
+
+  // Apply template WITHOUT changing mood (used for both auto-switch and Replace All)
   const applyTemplate = (templateId) => {
     // If clicking the same template, uncheck it (clear stats and moments but keep mood)
     if (selectedTemplate === templateId) {
@@ -168,7 +258,7 @@ export default function App() {
       setStats([{ label: '', value: '', image: null, note: '', isHighlight: false }]);
       setMoments([]);
       setContentOrder([{ type: 'stat', index: 0 }]);
-      // Keep the current mood - don't reset it
+      setTransitions({}); // Clear transitions when clearing template
       return;
     }
 
@@ -185,23 +275,63 @@ export default function App() {
         ...newMoments.map((_, i) => ({ type: 'moment', index: i }))
       ];
       setContentOrder(newContentOrder);
-      setSelectedMood(template.mood);
+      setTransitions({}); // Clear transitions when applying new template
+      // NOTE: Do NOT change mood - keep user's selected mood
     }
   };
 
-  // Set transition between stats (used in builder)
-  const setTransitionBetweenStats = (afterStatIndex, transitionType) => {
-    // The transition button is shown AFTER a stat at index afterStatIndex
-    // We want the transition to affect the NEXT stat entering
-    // Slide layout: [0: Title, 1: Stat0, 2: Stat1, 3: Stat2, ...]
-    // If button is after Stat0 (afterStatIndex=0), we want to affect Stat1 entering (slide 2)
-    // Formula: afterStatIndex + 2 (next stat index + 1 for title offset)
-    const destinationSlide = afterStatIndex + 2;
+  // Handle template click - auto-switch if no data, show dialog if has data
+  const handleTemplateClick = (templateId) => {
+    if (hasUserData()) {
+      // Show dialog with Add/Replace options
+      setShowTemplateDialog(templateId);
+    } else {
+      // Auto-switch template without dialog (no data to lose)
+      applyTemplate(templateId);
+    }
+  };
+
+  // Set transition between content items (stats or moments) in builder
+  // Uses contentOrder index, not stat index
+  const setTransitionAfterContent = (afterContentIndex, transitionType) => {
+    // Slide layout: [0: Title, 1: Content[0], 2: Content[1], ...]
+    // Transition affects the slide ENTERING after this content
+    // If button is after Content[0], affect Content[1] entering (slide 2)
+    const destinationSlide = afterContentIndex + 2;
     setTransitions(prev => ({
       ...prev,
       [destinationSlide]: transitionType
     }));
     setShowTransitionPicker(null);
+  };
+
+  // Drag-and-drop handlers for content reordering
+  const handleContentDragStart = (contentIndex) => {
+    setDraggedContentIndex(contentIndex);
+  };
+
+  const handleContentDragOver = (e) => {
+    e.preventDefault();
+  };
+
+  const handleContentDrop = (targetIndex) => {
+    if (draggedContentIndex === null || draggedContentIndex === targetIndex) {
+      setDraggedContentIndex(null);
+      return;
+    }
+
+    const newOrder = [...contentOrder];
+    const [removed] = newOrder.splice(draggedContentIndex, 1);
+    newOrder.splice(targetIndex, 0, removed);
+    setContentOrder(newOrder);
+
+    // Clear transitions since order changed (indices are now different)
+    setTransitions({});
+    setDraggedContentIndex(null);
+  };
+
+  const handleContentDragEnd = () => {
+    setDraggedContentIndex(null);
   };
 
   const addStat = () => {
@@ -216,6 +346,8 @@ export default function App() {
       .filter(item => !(item.type === 'stat' && item.index === index))
       .map(item => item.type === 'stat' && item.index > index ? { ...item, index: item.index - 1 } : item)
     );
+    // Clear transitions since content order changed
+    setTransitions({});
   };
   const updateStat = (index, field, value) => {
     const newStats = [...stats];
@@ -245,6 +377,8 @@ export default function App() {
       .filter(item => !(item.type === 'moment' && item.index === index))
       .map(item => item.type === 'moment' && item.index > index ? { ...item, index: item.index - 1 } : item)
     );
+    // Clear transitions since content order changed
+    setTransitions({});
   };
   const updateMoment = (index, field, value) => {
     const newMoments = [...moments];
@@ -469,14 +603,14 @@ export default function App() {
     setStep('input');
     // Always show onboarding for now (remove hasSeenOnboarding check temporarily for testing)
     setShowOnboarding(true);
-    setShowFormAfterOnboarding(false); // Reset so form animates in after onboarding closes
+    setShowFormAfterOnboarding(true); // Show form behind blur so tour overlays it
   };
 
   const resetWrapped = () => {
     setTitle(''); setDateRange(''); setCoverImage(null); setSelectedMood('twilight');
     setStats([{ label: '', value: '', image: null, note: '', isHighlight: false }]); setMoments([]); setBadges([]);
     setContentOrder([{ type: 'stat', index: 0 }]);
-    setReflection(''); setSelectedMusic(''); setStep('input'); setCurrentSlide(0);
+    setReflection(''); setSelectedMusic(''); setStep('home'); setCurrentSlide(0);
     setViewedHighlights(new Set()); setViewedBadges(new Set()); setViewedReflection(false);
     setShowConfetti(false); setAttemptedSubmit(false); setValidationErrors({}); setSelectedTemplate(null);
     setTransitions({}); setCustomMusicFile(null); starsShownForSlide.current = null; setStarsVisible(false);
@@ -1217,8 +1351,10 @@ export default function App() {
   };
 
   // Transition Picker Modal
-  const TransitionPickerModal = ({ statIndex, onSelect, onClose }) => {
-    const destinationSlide = statIndex + 2;
+  // TransitionPickerModal - now uses contentOrder index
+  const TransitionPickerModal = ({ contentIndex, onSelect, onClose }) => {
+    // Slide layout: [0: Title, 1: Content[0], 2: Content[1], ...]
+    const destinationSlide = contentIndex + 2;
     const currentTransition = transitions[destinationSlide];
 
     return (
@@ -1229,7 +1365,7 @@ export default function App() {
             {transitionTypes.map(t => (
               <button
                 key={t.id}
-                onClick={() => onSelect(statIndex, t.id)}
+                onClick={() => onSelect(contentIndex, t.id)}
                 className={`w-full p-4 rounded-xl border transition-all text-center ${currentTransition?.type === t.id || currentTransition === t.id ? 'bg-white/25 border-white/40' : 'bg-white/5 border-white/10 hover:bg-white/15 hover:border-white/25'}`}
               >
                 <div className="text-white font-bold text-lg">{t.name}</div>
@@ -1955,16 +2091,18 @@ export default function App() {
     );
   };
 
-  // Transition button for builder
-  const BuilderTransitionButton = ({ afterStatIndex, isLast }) => {
+  // Transition button for builder - now uses contentOrder index instead of stat index
+  const BuilderTransitionButton = ({ afterContentIndex, isLast }) => {
     if (isLast) return null;
-    const destinationSlide = afterStatIndex + 2;
+    // Slide layout: [0: Title, 1: Content[0], 2: Content[1], ...]
+    // Transition affects Content[afterContentIndex + 1] entering at slide afterContentIndex + 2
+    const destinationSlide = afterContentIndex + 2;
     const currentTransition = transitions[destinationSlide];
     const transitionInfo = transitionTypes.find(t => t.id === (currentTransition?.type || currentTransition));
     return (
       <div className="flex justify-center py-2">
         <button
-          onClick={() => setShowTransitionPicker(afterStatIndex)}
+          onClick={() => setShowTransitionPicker(afterContentIndex)}
           title="Add a special transition effect between slides (drumroll countdown, impact slam, etc.)"
           className="group flex items-center gap-2 px-3 py-1.5 rounded-full bg-white/5 hover:bg-white/15 border border-white/10 hover:border-white/30 transition-all"
         >
@@ -2931,85 +3069,120 @@ export default function App() {
     return <HomePage />;
   }
 
-  // Input/builder page
+  // CAW (Create a Wrapped) - Slide-based builder
+  // IMPORTANT: All slide content is rendered inline to prevent focus loss on re-renders
   if (step === 'input') {
+    const moodColors = moods.find(m => m.id === selectedMood)?.colors || ['#7c3aed', '#c4b5fd'];
+    const moodBgColors = moods.find(m => m.id === selectedMood)?.bgColors || ['#2e1065', '#3b0764', '#4a044e'];
+
     return (
       <div className="min-h-screen relative transition-all duration-1000" style={safariColorBoostStyle}>
-        <DynamicBackground moodId={selectedMood} /><NoiseOverlay />
+        {/* Original DynamicBackground - mood-based aurora gradients */}
+        <DynamicBackground moodId={selectedMood} />
+        <NoiseOverlay />
 
         {/* Mobile depth enhancement - extra layering for Safari/iOS */}
         {isSafari && (
           <>
-            {/* Soft gradient mesh for depth */}
             <div className="fixed inset-0 pointer-events-none z-[1]" style={{
               background: `
-                radial-gradient(ellipse 120% 80% at 20% 10%, rgba(139, 92, 246, 0.12) 0%, transparent 50%),
-                radial-gradient(ellipse 100% 100% at 80% 90%, rgba(236, 72, 153, 0.08) 0%, transparent 50%),
+                radial-gradient(ellipse 120% 80% at 20% 10%, ${moodColors[0]}20 0%, transparent 50%),
+                radial-gradient(ellipse 100% 100% at 80% 90%, ${moodColors[1]}15 0%, transparent 50%),
                 radial-gradient(ellipse 80% 60% at 50% 50%, rgba(255, 255, 255, 0.03) 0%, transparent 40%)
               `
             }} />
-            {/* Subtle animated shimmer */}
             <div className="fixed inset-0 pointer-events-none z-[1] mobile-shimmer opacity-[0.06]" />
           </>
         )}
 
         {/* Ambient floating aura orbs - continuous smooth animation */}
-        {(() => {
-          const moodColors = moods.find(m => m.id === selectedMood)?.colors || ['#7c3aed', '#c4b5fd'];
-          return (
-            <div className="fixed inset-0 overflow-hidden pointer-events-none z-0" key="aura-container">
-              {/* Large primary orb */}
-              <div className="absolute w-[700px] h-[700px] rounded-full blur-[180px] aura-float-1 opacity-[0.12]"
-                style={{ background: `radial-gradient(circle, ${moodColors[0]} 0%, transparent 70%)`, top: '-25%', left: '-20%' }} />
-              {/* Secondary orb */}
-              <div className="absolute w-[600px] h-[600px] rounded-full blur-[150px] aura-float-2 opacity-[0.10]"
-                style={{ background: `radial-gradient(circle, ${moodColors[1]} 0%, transparent 70%)`, bottom: '-20%', right: '-15%' }} />
-              {/* Accent orb */}
-              <div className="absolute w-[400px] h-[400px] rounded-full blur-[100px] aura-float-3 opacity-[0.08]"
-                style={{ background: `radial-gradient(circle, ${moodColors[0]}80 0%, transparent 70%)`, top: '40%', right: '20%' }} />
-              {/* Central glow */}
-              <div className="absolute w-[500px] h-[500px] rounded-full blur-[120px] aura-pulse opacity-[0.06]"
-                style={{ background: 'radial-gradient(circle, rgba(255,255,255,0.5) 0%, transparent 70%)', top: '30%', left: '40%' }} />
-            </div>
-          );
-        })()}
+        <div className="fixed inset-0 overflow-hidden pointer-events-none z-0">
+          <div className="absolute w-[700px] h-[700px] rounded-full blur-[180px] aura-float-1 opacity-[0.12]"
+            style={{ background: `radial-gradient(circle, ${moodColors[0]} 0%, transparent 70%)`, top: '-25%', left: '-20%' }} />
+          <div className="absolute w-[600px] h-[600px] rounded-full blur-[150px] aura-float-2 opacity-[0.10]"
+            style={{ background: `radial-gradient(circle, ${moodColors[1]} 0%, transparent 70%)`, bottom: '-20%', right: '-15%' }} />
+          <div className="absolute w-[400px] h-[400px] rounded-full blur-[100px] aura-float-3 opacity-[0.08]"
+            style={{ background: `radial-gradient(circle, ${moodColors[0]}80 0%, transparent 70%)`, top: '40%', right: '20%' }} />
+          <div className="absolute w-[500px] h-[500px] rounded-full blur-[120px] aura-pulse opacity-[0.06]"
+            style={{ background: 'radial-gradient(circle, rgba(255,255,255,0.5) 0%, transparent 70%)', top: '30%', left: '40%' }} />
+        </div>
 
-        {/* Image format error notification */}
+        {/* Error notification */}
         {imageFormatError && (
           <div className="fixed top-20 left-1/2 transform -translate-x-1/2 z-[100] animate-fade-in-down">
             <div className="bg-red-500/90 backdrop-blur-sm text-white px-6 py-3 rounded-xl shadow-2xl border border-red-400/50 flex items-center gap-3">
               <X size={18} />
               <span className="font-medium">{imageFormatError}</span>
-              <button onClick={() => setImageFormatError(null)} className="ml-2 hover:bg-white/20 rounded-full p-1 transition-colors">
-                <X size={14} />
-              </button>
+              <button onClick={() => setImageFormatError(null)} className="ml-2 hover:bg-white/20 rounded-full p-1"><X size={14} /></button>
             </div>
           </div>
         )}
 
-        {showTransitionPicker !== null && (
-          <TransitionPickerModal
-            statIndex={showTransitionPicker}
-            onSelect={setTransitionBetweenStats}
-            onClose={() => setShowTransitionPicker(null)}
-          />
-        )}
-        {audioRef.current && (<button onClick={toggleMusic} className="fixed top-4 sm:top-6 right-4 sm:right-6 p-2 sm:p-3 bg-white/10 hover:bg-white/20 hover:scale-110 rounded-full text-white transition-all duration-300 backdrop-blur-sm border-2 border-white/20 z-50 group">{audioPlaying ? <Volume2 size={18} className="group-hover:animate-pulse" /> : <VolumeX size={18} />}</button>)}
+        {/* Template dialog - only shows when user has data (via handleTemplateClick) */}
+        {showTemplateDialog && (() => {
+          const template = templates.find(t => t.id === showTemplateDialog);
+          if (!template) return null;
+          const handleAdd = () => {
+            const newStats = template.stats.map(s => ({ ...s, image: null, note: '' }));
+            const newMoments = template.moments ? template.moments.map(m => ({ ...m })) : [];
+            // Keep existing stats/moments with data, add new template items
+            const existingStatsWithData = stats.filter(s => s.value.trim() || s.image);
+            const existingMomentsWithData = moments.filter(m => m.image);
+            setStats([...existingStatsWithData, ...newStats]);
+            setMoments([...existingMomentsWithData, ...newMoments]);
+            // Rebuild content order: existing items first, then new template items
+            const newContentOrder = [
+              ...existingStatsWithData.map((_, i) => ({ type: 'stat', index: i })),
+              ...existingMomentsWithData.map((_, i) => ({ type: 'moment', index: i })),
+              ...newStats.map((_, i) => ({ type: 'stat', index: existingStatsWithData.length + i })),
+              ...newMoments.map((_, i) => ({ type: 'moment', index: existingMomentsWithData.length + i }))
+            ];
+            setContentOrder(newContentOrder);
+            setSelectedTemplate(showTemplateDialog);
+            setTransitions({}); // Clear transitions when adding template
+            setShowTemplateDialog(null);
+          };
+          // Replace All: uses applyTemplate which does NOT change mood
+          const handleReplace = () => { applyTemplate(showTemplateDialog); setShowTemplateDialog(null); };
+          return (
+            <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-black/60 backdrop-blur-sm" onClick={() => setShowTemplateDialog(null)}>
+              <div className="bg-gray-900/95 border border-white/10 rounded-2xl p-6 max-w-sm w-full shadow-2xl" onClick={e => e.stopPropagation()}>
+                <h3 className="text-xl font-bold text-white mb-2">Apply {template.name} Template?</h3>
+                <p className="text-white/60 mb-6">You have existing content. What would you like to do?</p>
+                <div className="space-y-3">
+                  <button onClick={handleAdd} className="w-full py-3 px-4 bg-purple-500/20 hover:bg-purple-500/30 border border-purple-400/30 rounded-xl text-white font-medium transition-all">Add to Existing</button>
+                  <button onClick={handleReplace} className="w-full py-3 px-4 bg-white/10 hover:bg-white/20 border border-white/20 rounded-xl text-white font-medium transition-all">Replace All</button>
+                  <button onClick={() => setShowTemplateDialog(null)} className="w-full py-3 px-4 text-white/60 hover:text-white transition-all">Cancel</button>
+                </div>
+              </div>
+            </div>
+          );
+        })()}
 
-        {/* Back to home button - hides on scroll */}
+        {/* Transition picker modal */}
+        {showTransitionPicker !== null && (
+          <TransitionPickerModal contentIndex={showTransitionPicker} onSelect={setTransitionAfterContent} onClose={() => setShowTransitionPicker(null)} />
+        )}
+
+        {/* Music toggle */}
+        {audioRef.current && (
+          <button onClick={toggleMusic} className="fixed top-4 sm:top-6 right-4 sm:right-6 p-2 sm:p-3 bg-white/10 hover:bg-white/20 hover:scale-110 rounded-full text-white transition-all duration-300 backdrop-blur-sm border-2 border-white/20 z-50 group">
+            {audioPlaying ? <Volume2 size={18} className="group-hover:animate-pulse" /> : <VolumeX size={18} />}
+          </button>
+        )}
+
+        {/* Back to home button */}
         <button
           onClick={() => setStep('home')}
-          disabled={showTransitionPicker !== null}
-          className={`fixed top-4 sm:top-6 left-4 sm:left-6 p-3 sm:p-3 bg-white/10 hover:bg-white/20 rounded-full text-white transition-all duration-300 backdrop-blur-sm border-2 border-white/20 z-50 flex items-center justify-center
-            ${showTransitionPicker !== null ? 'pointer-events-none opacity-30' : ''}
+          className={`fixed top-4 sm:top-6 left-4 sm:left-6 p-3 bg-white/10 hover:bg-white/20 rounded-full text-white transition-all duration-300 backdrop-blur-sm border-2 border-white/20 z-50 flex items-center justify-center
             ${isScrolled ? 'opacity-0 pointer-events-none -translate-y-2' : 'opacity-100 translate-y-0'}`}
         >
           <ArrowLeft size={20} className="sm:w-[18px] sm:h-[18px]" />
         </button>
 
-        {/* Help/Tour button - hides on scroll */}
+        {/* Help/Tour button */}
         <button
-          onClick={() => { setShowOnboarding(true); }}
+          onClick={() => setShowOnboarding(true)}
           className={`fixed top-4 sm:top-6 left-16 sm:left-20 px-3 py-2 sm:py-3 bg-white/10 hover:bg-white/20 rounded-full text-white transition-all duration-300 backdrop-blur-sm border-2 border-white/20 z-50 flex items-center gap-2 text-sm font-medium
             ${isScrolled ? 'opacity-0 pointer-events-none -translate-y-2' : 'opacity-100 translate-y-0'}`}
         >
@@ -3017,134 +3190,276 @@ export default function App() {
           <span className="hidden sm:inline">Tour</span>
         </button>
 
-        {/* Form container - only show after onboarding closes (or if already showing) */}
+        {/* Form container with original frame and glow - visible during and after tour */}
         {showFormAfterOnboarding && (
-        <div className="relative z-10 w-full max-w-4xl mx-auto px-4 sm:px-6 py-8 sm:py-12">
-          <div className={`backdrop-blur-2xl rounded-3xl border border-white/[0.08] shadow-2xl overflow-hidden relative form-card-glow ${showFormAfterOnboarding ? 'animate-form-entrance' : ''}`} style={{
-            background: `linear-gradient(135deg, ${moods.find(m => m.id === selectedMood)?.bgColors[0] || '#2e1065'}30 0%, ${moods.find(m => m.id === selectedMood)?.bgColors[1] || '#3b0764'}20 50%, ${moods.find(m => m.id === selectedMood)?.bgColors[2] || '#4a044e'}15 100%)`
-          }}>
-            {/* Subtle inner glow */}
-            <div className="absolute inset-0 rounded-3xl shadow-[inset_0_1px_1px_rgba(255,255,255,0.05)] pointer-events-none" />
-            <div className="p-6 sm:p-8 pb-4 border-b border-white/[0.06] relative">
-              <h1 className="text-3xl sm:text-4xl md:text-5xl font-black text-white mb-2 tracking-tight text-center animate-title-slide-in">Create Your Wrap</h1>
-              <p className="text-white/60 text-base sm:text-lg text-center animate-subtitle-slide-in">Track anything you want and share it with friends!</p>
-            </div>
-            <div className="p-6 sm:p-8 pt-6">
-              <div className="space-y-6 sm:space-y-8">
-                <div title="Pick a template to auto-fill suggested stats for your topic" className="animate-section-fade-in" style={{ animationDelay: '0.2s' }}><FieldLabel>Quick Start Templates</FieldLabel><TemplateSelector selectedTemplate={selectedTemplate} onSelect={applyTemplate} /><p className="text-white/40 text-xs mt-2 italic">Note: Switching between templates removes stats data.</p></div>
-                <div className="animate-section-fade-in" style={{ animationDelay: '0.3s' }}><FieldLabel required error={validationErrors.title}>Wrap Title</FieldLabel><input type="text" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="My Adventures" className={`w-full px-4 sm:px-5 py-3 sm:py-4 rounded-xl bg-white/[0.06] border text-white placeholder-white/40 focus:outline-none focus:bg-white/[0.08] focus:border-white/30  backdrop-blur-sm font-medium text-base sm:text-lg transition-all duration-300 shadow-[inset_0_1px_2px_rgba(0,0,0,0.1)] ${validationErrors.title ? 'border-red-500/50' : 'border-white/[0.08]'}`} />{validationErrors.title && <p className="text-red-400 text-sm mt-2">Please enter a title for your Wrapped</p>}</div>
-                <div className="animate-section-fade-in" style={{ animationDelay: '0.4s' }}><FieldLabel>Add Cover Image <span className="text-white/40 font-normal normal-case">(optional)</span></FieldLabel><div className="flex items-center gap-4">{coverImage ? (<div className="relative"><img src={coverImage} alt="Cover Preview" className="w-32 sm:w-40 h-20 sm:h-24 object-cover rounded-xl border border-white/[0.15]" /><button onClick={() => setCoverImage(null)} className="absolute -top-2 -right-2 p-1 bg-red-500 hover:bg-red-600 rounded-full text-white transition-colors"><X size={16} /></button></div>) : (<label className="flex items-center gap-2 sm:gap-3 px-4 sm:px-5 py-3 sm:py-4 bg-white/[0.06] hover:bg-white/[0.1] rounded-xl text-white/60 transition-all duration-300 border border-white/[0.08] hover:border-white/[0.15] cursor-pointer"><ImagePlus size={20} /><span className="font-medium text-sm sm:text-base">Upload Cover Image</span><input type="file" accept="image/*" onChange={(e) => handleCoverImageUpload(e.target.files[0])} className="hidden" /></label>)}</div></div>
-                <div className="animate-section-fade-in" style={{ animationDelay: '0.5s' }}><FieldLabel required error={validationErrors.dateRange}>Date Range</FieldLabel><input type="text" value={dateRange} onChange={(e) => setDateRange(e.target.value)} placeholder="E.g., 2026 Q1, November, Fall Semester" className={`w-full px-4 sm:px-5 py-3 sm:py-4 rounded-xl bg-white/[0.06] border text-white placeholder-white/40 focus:outline-none focus:bg-white/[0.08] focus:border-white/30  backdrop-blur-sm font-medium text-base sm:text-lg transition-all duration-300 shadow-[inset_0_1px_2px_rgba(0,0,0,0.1)] ${validationErrors.dateRange ? 'border-red-500/50' : 'border-white/[0.08]'}`} />{validationErrors.dateRange && <p className="text-red-400 text-sm mt-2">Please enter a date range</p>}</div>
+          <div className="relative z-10 w-full max-w-4xl mx-auto px-4 sm:px-6 py-8 sm:py-12">
+            <div className={`backdrop-blur-2xl rounded-3xl border border-white/[0.08] shadow-2xl overflow-hidden relative form-card-glow animate-form-entrance`} style={{
+              background: `linear-gradient(135deg, ${moodBgColors[0]}30 0%, ${moodBgColors[1]}20 50%, ${moodBgColors[2]}15 100%)`
+            }}>
+              {/* Subtle inner glow */}
+              <div className="absolute inset-0 rounded-3xl shadow-[inset_0_1px_1px_rgba(255,255,255,0.05)] pointer-events-none" />
 
-                <div className="animate-section-fade-in" style={{ animationDelay: '0.6s' }}><FieldLabel>Background Music</FieldLabel><select value={selectedMusic} onChange={(e) => handleMusicSelect(e.target.value)} className="w-full px-4 sm:px-5 py-3 sm:py-4 rounded-xl bg-white/[0.06] border border-white/[0.08] text-white focus:outline-none focus:bg-white/[0.08] focus:border-white/30  backdrop-blur-sm font-medium text-base sm:text-lg transition-all duration-300 shadow-[inset_0_1px_2px_rgba(0,0,0,0.1)]">{musicTracks.map(track => (<option key={track.id} value={track.id} className="bg-gray-900 text-white">{track.name}</option>))}</select>{selectedMusic === 'custom' && (<label className="mt-3 flex items-center gap-3 px-4 py-3 bg-white/[0.06] hover:bg-white/[0.1] rounded-xl text-white/60 transition-all duration-300 border border-dashed border-white/[0.15] hover:border-white/30 cursor-pointer"><Upload size={20} /><span className="font-medium">{customMusicFile ? customMusicFile.name : 'Choose audio file (.mp3, .wav, etc.)'}</span><input type="file" accept="audio/*" onChange={(e) => handleCustomMusicUpload(e.target.files[0])} className="hidden" /></label>)}{audioRef.current && (<p className="text-white/40 text-sm mt-2">Use the speaker button to play/pause music</p>)}</div>
-
-                {/* Stats with transition buttons between them */}
-                <div className="animate-section-fade-in" style={{ animationDelay: '0.7s' }}>
-                  <FieldLabel required error={validationErrors.stats}>Your Stats</FieldLabel>
-                  {validationErrors.stats && <p className="text-red-400 text-sm mb-3">Please add at least one complete stat (label and value)</p>}
-                  <div className="space-y-2">
-                    {stats.map((stat, index) => (
-                      <React.Fragment key={index}>
-                        <div className="relative space-y-3 p-4 pb-10 bg-white/[0.03] rounded-xl border border-white/[0.06] transition-all duration-300 hover:bg-white/[0.04] hover:border-white/[0.1]">
-                          <div className="flex flex-col sm:flex-row gap-3">
-                            <input type="text" value={stat.label} onChange={(e) => updateStat(index, 'label', e.target.value)} placeholder="Stat Label (e.g., Books Read)" className={`flex-1 px-4 sm:px-5 py-3 sm:py-4 rounded-xl bg-white/[0.06] border text-white placeholder-white/40 focus:outline-none focus:bg-white/[0.08] focus:border-white/30  backdrop-blur-sm font-bold text-sm sm:text-base transition-all duration-300 shadow-[inset_0_1px_2px_rgba(0,0,0,0.1)] ${validationErrors[`stat-${index}-label`] ? 'border-red-500/50' : 'border-white/[0.08]'}`} />
-                            <input type="text" value={stat.value} onChange={(e) => updateStat(index, 'value', e.target.value)} placeholder="Value (e.g., 42, Lagos, A+)" className={`flex-1 px-4 sm:px-5 py-3 sm:py-4 rounded-xl bg-white/[0.06] border text-white placeholder-white/40 focus:outline-none focus:bg-white/[0.08] focus:border-white/30  backdrop-blur-sm font-medium text-sm sm:text-base transition-all duration-300 shadow-[inset_0_1px_2px_rgba(0,0,0,0.1)] ${validationErrors[`stat-${index}-value`] ? 'border-red-500/50' : 'border-white/[0.08]'}`} />
-                          </div>
-                          <input type="text" value={stat.note} onChange={(e) => updateStat(index, 'note', e.target.value)} placeholder="Extra Info (optional)" className="w-full px-4 sm:px-5 py-2 sm:py-3 rounded-xl bg-white/[0.06] border border-white/[0.08] text-white placeholder-white/40 focus:outline-none focus:bg-white/[0.08] focus:border-white/30  backdrop-blur-sm font-medium text-sm transition-all duration-300 shadow-[inset_0_1px_2px_rgba(0,0,0,0.1)]" />
-                          <div className="flex items-center gap-2" title="Highlighted stats get a special golden glow and falling stars animation">
-                            <input type="checkbox" id={`highlight-${index}`} checked={stat.isHighlight} onChange={(e) => updateStat(index, 'isHighlight', e.target.checked)} className="w-5 h-5 rounded border-2 border-white/20 bg-white/10 checked:bg-yellow-400 checked:border-yellow-400 cursor-pointer" />
-                            <label htmlFor={`highlight-${index}`} className="text-white/80 text-sm font-medium cursor-pointer flex items-center gap-2"><Star size={16} className="text-yellow-300 fill-yellow-300" />Highlight this Stat</label>
-                          </div>
-                          <div className="flex items-center gap-3">
-                            {stat.image ? (<div className="relative"><img src={stat.image} alt="Preview" className="w-24 sm:w-32 h-24 sm:h-32 object-cover rounded-lg border-2 border-white/20" /><button onClick={() => removeImage(index)} className="absolute top-1 right-1 sm:-top-2 sm:-right-2 p-1.5 sm:p-1 bg-red-500 hover:bg-red-600 rounded-full text-white transition-colors shadow-lg"><X size={14} className="sm:w-4 sm:h-4" /></button></div>) : (<label className="flex items-center gap-2 px-3 sm:px-4 py-2 sm:py-3 bg-white/10 hover:bg-white/20 rounded-xl text-white/70 transition-colors border-2 border-white/20 cursor-pointer"><Upload size={16} /><span className="text-xs sm:text-sm font-medium">Add Image <span className="text-white/50">(optional)</span></span><input type="file" accept="image/*" onChange={(e) => handleImageUpload(index, e.target.files[0])} className="hidden" /></label>)}
-                          </div>
-                          {stats.length > 1 && (<button onClick={() => removeStat(index)} className="absolute bottom-2 right-2 p-1.5 bg-red-500/20 hover:bg-red-500/40 rounded-lg text-white/70 hover:text-white transition-colors"><Trash2 size={14} /></button>)}
-                        </div>
-                        {/* Transition button between stats (not after last stat) */}
-                        <BuilderTransitionButton afterStatIndex={index} isLast={index === stats.length - 1} />
-                      </React.Fragment>
-                    ))}
-                    <div className="flex gap-3 mt-4">
-                      <button onClick={addStat} className="flex-1 flex items-center justify-center gap-2 px-5 py-3 bg-white/[0.06] hover:bg-white/[0.1] rounded-xl text-white transition-all duration-300 border border-white/[0.08] hover:border-white/20 font-bold hover:shadow-[0_0_20px_rgba(255,255,255,0.05)]"><Plus size={20} />Add Stat</button>
-                      <button onClick={addMoment} className="flex-1 flex items-center justify-center gap-2 px-5 py-3 bg-purple-500/[0.08] hover:bg-purple-500/[0.15] rounded-xl text-white transition-all duration-300 border border-purple-400/[0.15] hover:border-purple-400/30 font-bold hover:shadow-[0_0_20px_rgba(139,92,246,0.1)]"><Camera size={20} />Add Moment</button>
-                    </div>
-                  </div>
+              {/* Header with progress dots */}
+              <div className="p-6 sm:p-8 pb-4 border-b border-white/[0.06] relative">
+                <h1 className="text-3xl sm:text-4xl md:text-5xl font-black text-white mb-2 tracking-tight text-center animate-title-slide-in">Create Your Wrap</h1>
+                <p className="text-white/60 text-base sm:text-lg text-center animate-subtitle-slide-in">
+                  {cawSlide === 0 && "Set up your Wrapped's identity"}
+                  {cawSlide === 1 && "Add your stats and moments"}
+                  {cawSlide === 2 && "Add personality and polish"}
+                </p>
+                {/* Progress dots */}
+                <div className="flex justify-center gap-3 mt-4">
+                  {[0, 1, 2].map(i => (
+                    <button
+                      key={i}
+                      onClick={() => goToCawSlide(i)}
+                      className={`transition-all duration-300 ${cawSlide === i ? 'w-8 h-2 bg-white rounded-full' : 'w-2 h-2 bg-white/30 hover:bg-white/50 rounded-full'}`}
+                    />
+                  ))}
                 </div>
+              </div>
 
-                {/* Moments Section */}
-                {moments.length > 0 && (
-                  <div>
-                    <FieldLabel>
-                      <span className="flex items-center gap-2">
-                        <Camera size={18} className="text-purple-400" />
-                        Your Moments
-                      </span>
-                    </FieldLabel>
-                    <p className="text-white/60 text-sm mb-3"> A photo that shaped this Wrap.</p>
-                    <div className="space-y-4">
-                      {moments.map((moment, index) => (
-                        <div key={index} className="relative p-4 pb-10 bg-gradient-to-br from-purple-500/10 to-pink-500/10 rounded-xl border border-purple-400/20 space-y-4">
-                          {/* Image upload area */}
-                          <div className="flex flex-col sm:flex-row gap-4">
-                            {moment.image ? (
-                              <div className="relative">
-                                <img src={moment.image} alt="Moment Preview" className="w-full sm:w-40 h-48 sm:h-52 object-cover rounded-xl border-2 border-white/20" />
-                                <button onClick={() => updateMoment(index, 'image', null)} className="absolute top-2 right-2 p-1.5 bg-red-500 hover:bg-red-600 rounded-full text-white transition-colors shadow-lg"><X size={14} /></button>
-                              </div>
-                            ) : (
-                              <label className="flex flex-col items-center justify-center w-full sm:w-40 h-48 sm:h-52 bg-white/5 hover:bg-white/10 rounded-xl text-white/50 transition-colors border-2 border-dashed border-purple-400/30 cursor-pointer">
-                                <Camera size={32} className="mb-2 text-purple-400/60" />
-                                <span className="text-sm font-medium">Add Photo</span>
-                                <span className="text-xs text-white/40 mt-1">(Required)</span>
-                                <input type="file" accept="image/*" onChange={(e) => handleMomentImageUpload(index, e.target.files[0])} className="hidden" />
-                              </label>
-                            )}
-                            <div className="flex-1 space-y-3">
-                              <input
-                                type="text"
-                                value={moment.label}
-                                onChange={(e) => updateMoment(index, 'label', e.target.value)}
-                                placeholder="A Moment Worth Remembering"
-                                className="w-full px-4 py-3 rounded-xl bg-white/10 border-2 border-white/20 text-white placeholder-white/50 focus:outline-none focus:ring-2 focus:ring-purple-400/50 backdrop-blur-sm font-medium text-sm sm:text-base"
-                              />
-                              {/* Glow color selector */}
-                              <div>
-                                <span className="text-white/60 text-xs uppercase tracking-wide mb-2 block">Frame Glow</span>
-                                <div className="flex gap-2 flex-wrap">
-                                  {momentGlowColors.map(gc => (
-                                    <button
-                                      key={gc.id}
-                                      onClick={() => updateMoment(index, 'glowColor', gc.id)}
-                                      className={`w-8 h-8 rounded-full border-2 transition-all ${moment.glowColor === gc.id ? 'border-white scale-110' : 'border-white/30 hover:border-white/60'}`}
-                                      style={{ background: gc.color, boxShadow: moment.glowColor === gc.id ? `0 0 15px ${gc.glow}` : 'none' }}
-                                      title={gc.name}
-                                    />
-                                  ))}
+              {/* Slide content */}
+              <div className="p-6 sm:p-8 pt-6">
+                <div className="space-y-6 sm:space-y-8">
+                  {/* SLIDE 0: Basics - Order: Title, Date Range, Mood, Cover Image */}
+                  {cawSlide === 0 && (
+                    <>
+                      <div className="animate-section-fade-in" style={{ animationDelay: '0.2s' }}>
+                        <FieldLabel required error={validationErrors.title}>Wrap Title</FieldLabel>
+                        <input type="text" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="My 2024 Adventures" className={`w-full px-4 sm:px-5 py-3 sm:py-4 rounded-xl bg-white/[0.06] border text-white placeholder-white/40 focus:outline-none focus:bg-white/[0.08] focus:border-white/30 backdrop-blur-sm font-medium text-base sm:text-lg transition-all duration-300 shadow-[inset_0_1px_2px_rgba(0,0,0,0.1)] ${validationErrors.title ? 'border-red-500/50' : 'border-white/[0.08]'}`} />
+                        {validationErrors.title && <p className="text-red-400 text-sm mt-2">Please enter a title for your Wrapped</p>}
+                      </div>
+                      <div className="animate-section-fade-in" style={{ animationDelay: '0.3s' }}>
+                        <FieldLabel>Date Range <span className="text-white/40 font-normal normal-case">(optional)</span></FieldLabel>
+                        <input type="text" value={dateRange} onChange={(e) => setDateRange(e.target.value)} placeholder="E.g., 2026 Q1, November, Fall Semester" className="w-full px-4 sm:px-5 py-3 sm:py-4 rounded-xl bg-white/[0.06] border border-white/[0.08] text-white placeholder-white/40 focus:outline-none focus:bg-white/[0.08] focus:border-white/30 backdrop-blur-sm font-medium text-base sm:text-lg transition-all duration-300 shadow-[inset_0_1px_2px_rgba(0,0,0,0.1)]" />
+                      </div>
+                      <div className="animate-section-fade-in" style={{ animationDelay: '0.4s' }}>
+                        <FieldLabel>Choose your Wrap Mood</FieldLabel>
+                        <MoodSelector selectedMood={selectedMood} onSelect={setSelectedMood} />
+                      </div>
+                      <div className="animate-section-fade-in" style={{ animationDelay: '0.5s' }}>
+                        <FieldLabel>Cover Image <span className="text-white/40 font-normal normal-case">(optional)</span></FieldLabel>
+                        <div className="flex items-center gap-4">
+                          {coverImage ? (
+                            <div className="relative">
+                              <img src={coverImage} alt="Cover Preview" className="w-32 sm:w-40 h-20 sm:h-24 object-cover rounded-xl border border-white/[0.15]" />
+                              <button onClick={() => setCoverImage(null)} className="absolute -top-2 -right-2 p-1 bg-red-500 hover:bg-red-600 rounded-full text-white transition-colors"><X size={16} /></button>
+                            </div>
+                          ) : (
+                            <label className="flex items-center gap-2 sm:gap-3 px-4 sm:px-5 py-3 sm:py-4 bg-white/[0.06] hover:bg-white/[0.1] rounded-xl text-white/60 transition-all duration-300 border border-white/[0.08] hover:border-white/[0.15] cursor-pointer">
+                              <ImagePlus size={20} />
+                              <span className="font-medium text-sm sm:text-base">Upload Cover Image</span>
+                              <input type="file" accept="image/*" onChange={(e) => handleCoverImageUpload(e.target.files[0])} className="hidden" />
+                            </label>
+                          )}
+                        </div>
+                      </div>
+                    </>
+                  )}
+
+                  {/* SLIDE 1: Build - Unified contentOrder-based list with drag-drop */}
+                  {cawSlide === 1 && (
+                    <>
+                      <div className="animate-section-fade-in" style={{ animationDelay: '0.1s' }}>
+                        <FieldLabel>Quick Start Templates</FieldLabel>
+                        <TemplateSelector selectedTemplate={selectedTemplate} onSelect={handleTemplateClick} />
+                        <p className="text-white/40 text-xs mt-2 italic">Templates add suggested stats without changing your mood.</p>
+                      </div>
+                      <div className="animate-section-fade-in" style={{ animationDelay: '0.2s' }}>
+                        <FieldLabel required error={validationErrors.stats}>Your Content</FieldLabel>
+                        {validationErrors.stats && <p className="text-red-400 text-sm mb-3">Please add at least one complete stat (label and value)</p>}
+                        <p className="text-white/50 text-xs mb-3">Drag items to reorder. Add transitions between slides.</p>
+                        <div className="space-y-2">
+                          {/* Unified content list based on contentOrder */}
+                          {contentOrder.map((item, orderIndex) => {
+                            const isBeingDragged = draggedContentIndex === orderIndex;
+                            const isLast = orderIndex === contentOrder.length - 1;
+
+                            if (item.type === 'stat') {
+                              const stat = stats[item.index];
+                              if (!stat) return null;
+                              return (
+                                <React.Fragment key={`content-${orderIndex}-stat-${item.index}`}>
+                                  <div
+                                    draggable
+                                    onDragStart={() => handleContentDragStart(orderIndex)}
+                                    onDragOver={handleContentDragOver}
+                                    onDrop={() => handleContentDrop(orderIndex)}
+                                    onDragEnd={handleContentDragEnd}
+                                    className={`relative space-y-3 p-4 pb-10 bg-white/[0.03] rounded-xl border border-white/[0.06] transition-all duration-300 hover:bg-white/[0.04] hover:border-white/[0.1] cursor-grab active:cursor-grabbing ${isBeingDragged ? 'opacity-50 scale-[0.98]' : ''}`}
+                                  >
+                                    {/* Drag handle indicator */}
+                                    <div className="absolute top-2 left-2 text-white/30 hover:text-white/60">
+                                      <GripVertical size={16} />
+                                    </div>
+                                    <div className="absolute top-2 right-2 text-white/40 text-xs font-medium uppercase tracking-wide">Stat</div>
+                                    <div className="flex flex-col sm:flex-row gap-3 pt-4">
+                                      <input type="text" value={stat.label} onChange={(e) => updateStat(item.index, 'label', e.target.value)} placeholder="Stat Label (e.g., Books Read)" className={`flex-1 px-4 sm:px-5 py-3 sm:py-4 rounded-xl bg-white/[0.06] border text-white placeholder-white/40 focus:outline-none focus:bg-white/[0.08] focus:border-white/30 backdrop-blur-sm font-bold text-sm sm:text-base transition-all duration-300 shadow-[inset_0_1px_2px_rgba(0,0,0,0.1)] ${validationErrors[`stat-${item.index}-label`] ? 'border-red-500/50' : 'border-white/[0.08]'}`} />
+                                      <input type="text" value={stat.value} onChange={(e) => updateStat(item.index, 'value', e.target.value)} placeholder="Value (e.g., 42, Lagos, A+)" className={`flex-1 px-4 sm:px-5 py-3 sm:py-4 rounded-xl bg-white/[0.06] border text-white placeholder-white/40 focus:outline-none focus:bg-white/[0.08] focus:border-white/30 backdrop-blur-sm font-medium text-sm sm:text-base transition-all duration-300 shadow-[inset_0_1px_2px_rgba(0,0,0,0.1)] ${validationErrors[`stat-${item.index}-value`] ? 'border-red-500/50' : 'border-white/[0.08]'}`} />
+                                    </div>
+                                    <input type="text" value={stat.note || ''} onChange={(e) => updateStat(item.index, 'note', e.target.value)} placeholder="Extra Info (optional)" className="w-full px-4 sm:px-5 py-2 sm:py-3 rounded-xl bg-white/[0.06] border border-white/[0.08] text-white placeholder-white/40 focus:outline-none focus:bg-white/[0.08] focus:border-white/30 backdrop-blur-sm font-medium text-sm transition-all duration-300 shadow-[inset_0_1px_2px_rgba(0,0,0,0.1)]" />
+                                    <div className="flex items-center gap-2" title="Highlighted stats get a special golden glow and falling stars animation">
+                                      <input type="checkbox" id={`highlight-${item.index}`} checked={stat.isHighlight} onChange={(e) => updateStat(item.index, 'isHighlight', e.target.checked)} className="w-5 h-5 rounded border-2 border-white/20 bg-white/10 checked:bg-yellow-400 checked:border-yellow-400 cursor-pointer" />
+                                      <label htmlFor={`highlight-${item.index}`} className="text-white/80 text-sm font-medium cursor-pointer flex items-center gap-2"><Star size={16} className="text-yellow-300 fill-yellow-300" />Highlight this Stat</label>
+                                    </div>
+                                    <div className="flex items-center gap-3">
+                                      {stat.image ? (
+                                        <div className="relative">
+                                          <img src={stat.image} alt="Preview" className="w-24 sm:w-32 h-24 sm:h-32 object-cover rounded-lg border-2 border-white/20" />
+                                          <button onClick={() => removeImage(item.index)} className="absolute top-1 right-1 sm:-top-2 sm:-right-2 p-1.5 sm:p-1 bg-red-500 hover:bg-red-600 rounded-full text-white transition-colors shadow-lg"><X size={14} className="sm:w-4 sm:h-4" /></button>
+                                        </div>
+                                      ) : (
+                                        <label className="flex items-center gap-2 px-3 sm:px-4 py-2 sm:py-3 bg-white/10 hover:bg-white/20 rounded-xl text-white/70 transition-colors border-2 border-white/20 cursor-pointer">
+                                          <Upload size={16} />
+                                          <span className="text-xs sm:text-sm font-medium">Add Image <span className="text-white/50">(optional)</span></span>
+                                          <input type="file" accept="image/*" onChange={(e) => handleImageUpload(item.index, e.target.files[0])} className="hidden" />
+                                        </label>
+                                      )}
+                                    </div>
+                                    {contentOrder.length > 1 && (<button onClick={() => removeStat(item.index)} className="absolute bottom-2 right-2 p-1.5 bg-red-500/20 hover:bg-red-500/40 rounded-lg text-white/70 hover:text-white transition-colors"><Trash2 size={14} /></button>)}
+                                  </div>
+                                  <BuilderTransitionButton afterContentIndex={orderIndex} isLast={isLast} />
+                                </React.Fragment>
+                              );
+                            } else if (item.type === 'moment') {
+                              const moment = moments[item.index];
+                              if (!moment) return null;
+                              return (
+                                <React.Fragment key={`content-${orderIndex}-moment-${item.index}`}>
+                                  <div
+                                    draggable
+                                    onDragStart={() => handleContentDragStart(orderIndex)}
+                                    onDragOver={handleContentDragOver}
+                                    onDrop={() => handleContentDrop(orderIndex)}
+                                    onDragEnd={handleContentDragEnd}
+                                    className={`relative p-4 pb-10 bg-gradient-to-br from-purple-500/10 to-pink-500/10 rounded-xl border border-purple-400/20 space-y-4 cursor-grab active:cursor-grabbing ${isBeingDragged ? 'opacity-50 scale-[0.98]' : ''}`}
+                                  >
+                                    {/* Drag handle indicator */}
+                                    <div className="absolute top-2 left-2 text-white/30 hover:text-white/60">
+                                      <GripVertical size={16} />
+                                    </div>
+                                    <div className="absolute top-2 right-2 text-purple-400/60 text-xs font-medium uppercase tracking-wide">Moment</div>
+                                    <div className="flex flex-col sm:flex-row gap-4 pt-4">
+                                      {moment.image ? (
+                                        <div className="relative">
+                                          <img src={moment.image} alt="Moment Preview" className="w-full sm:w-40 h-48 sm:h-52 object-cover rounded-xl border-2 border-white/20" />
+                                          <button onClick={() => updateMoment(item.index, 'image', null)} className="absolute top-2 right-2 p-1.5 bg-red-500 hover:bg-red-600 rounded-full text-white transition-colors shadow-lg"><X size={14} /></button>
+                                        </div>
+                                      ) : (
+                                        <label className="flex flex-col items-center justify-center w-full sm:w-40 h-48 sm:h-52 bg-white/5 hover:bg-white/10 rounded-xl text-white/50 transition-colors border-2 border-dashed border-purple-400/30 cursor-pointer">
+                                          <Camera size={32} className="mb-2 text-purple-400/60" />
+                                          <span className="text-sm font-medium">Add Photo</span>
+                                          <span className="text-xs text-white/40 mt-1">(Required)</span>
+                                          <input type="file" accept="image/*" onChange={(e) => handleMomentImageUpload(item.index, e.target.files[0])} className="hidden" />
+                                        </label>
+                                      )}
+                                      <div className="flex-1 space-y-3">
+                                        <input type="text" value={moment.label || ''} onChange={(e) => updateMoment(item.index, 'label', e.target.value)} placeholder="A Moment Worth Remembering" className="w-full px-4 py-3 rounded-xl bg-white/10 border-2 border-white/20 text-white placeholder-white/50 focus:outline-none focus:ring-2 focus:ring-purple-400/50 backdrop-blur-sm font-medium text-sm sm:text-base" />
+                                        <div>
+                                          <span className="text-white/60 text-xs uppercase tracking-wide mb-2 block">Frame Glow</span>
+                                          <div className="flex gap-2 flex-wrap">
+                                            {momentGlowColors.map(gc => (
+                                              <button key={gc.id} onClick={() => updateMoment(item.index, 'glowColor', gc.id)} className={`w-8 h-8 rounded-full border-2 transition-all ${moment.glowColor === gc.id ? 'border-white scale-110' : 'border-white/30 hover:border-white/60'}`} style={{ background: gc.color, boxShadow: moment.glowColor === gc.id ? `0 0 15px ${gc.glow}` : 'none' }} title={gc.name} />
+                                            ))}
+                                          </div>
+                                        </div>
+                                      </div>
+                                    </div>
+                                    <button onClick={() => removeMoment(item.index)} className="absolute bottom-2 right-2 p-1.5 bg-red-500/20 hover:bg-red-500/40 rounded-lg text-white/70 hover:text-white transition-colors"><Trash2 size={14} /></button>
+                                  </div>
+                                  <BuilderTransitionButton afterContentIndex={orderIndex} isLast={isLast} />
+                                </React.Fragment>
+                              );
+                            }
+                            return null;
+                          })}
+                          <div className="flex gap-3 mt-4">
+                            <button onClick={addStat} className="flex-1 flex items-center justify-center gap-2 px-5 py-3 bg-white/[0.06] hover:bg-white/[0.1] rounded-xl text-white transition-all duration-300 border border-white/[0.08] hover:border-white/20 font-bold hover:shadow-[0_0_20px_rgba(255,255,255,0.05)]"><Plus size={20} />Add Stat</button>
+                            <button onClick={addMoment} className="flex-1 flex items-center justify-center gap-2 px-5 py-3 bg-purple-500/[0.08] hover:bg-purple-500/[0.15] rounded-xl text-white transition-all duration-300 border border-purple-400/[0.15] hover:border-purple-400/30 font-bold hover:shadow-[0_0_20px_rgba(139,92,246,0.1)]"><Camera size={20} />Add Moment</button>
+                          </div>
+                        </div>
+                      </div>
+                    </>
+                  )}
+
+                  {/* SLIDE 2: Finishing Touches */}
+                  {cawSlide === 2 && (
+                    <>
+                      <div className="animate-section-fade-in" style={{ animationDelay: '0.1s' }}>
+                        <FieldLabel>Add a Badge to your Wrap</FieldLabel>
+                        <div className="space-y-4">
+                          {badges.map((badge, index) => (
+                            <div key={index} className="p-4 bg-white/5 rounded-xl border border-white/10 space-y-3">
+                              <div className="flex gap-3 items-start">
+                                <div className="relative">
+                                  <button onClick={() => setShowEmojiPicker(showEmojiPicker === index ? null : index)} className="w-14 sm:w-16 h-14 sm:h-16 text-2xl sm:text-3xl rounded-xl bg-white/10 border-2 border-white/20 hover:bg-white/20 transition-colors flex items-center justify-center">{badge.emoji}</button>
+                                  {showEmojiPicker === index && <EmojiPicker selectedEmoji={badge.emoji} onSelect={(emoji) => updateBadge(index, 'emoji', emoji)} onClose={() => setShowEmojiPicker(null)} />}
                                 </div>
+                                <div className="flex-1 space-y-2">
+                                  <input type="text" value={badge.title} onChange={(e) => updateBadge(index, 'title', e.target.value)} placeholder="Badge Title (e.g., Top Reader)" className="w-full px-4 sm:px-5 py-3 rounded-xl bg-white/10 border-2 border-white/20 text-white placeholder-white/50 focus:outline-none focus:ring-2 focus:ring-white/50 backdrop-blur-sm font-medium text-sm sm:text-base" />
+                                  <input type="text" value={badge.subtext || ''} onChange={(e) => updateBadge(index, 'subtext', e.target.value)} placeholder="Subtext (Completed Reading Goal)" className="w-full px-4 py-2 rounded-xl bg-white/5 border border-white/10 text-white/80 placeholder-white/40 focus:outline-none focus:ring-2 focus:ring-white/30 backdrop-blur-sm text-sm" />
+                                </div>
+                                <button onClick={() => removeBadge(index)} className="px-4 py-3 bg-red-500/20 hover:bg-red-500/40 rounded-xl text-white transition-colors border-2 border-red-500/40"><Trash2 size={20} /></button>
                               </div>
                             </div>
-                          </div>
-                          {/* Delete button */}
-                          <button onClick={() => removeMoment(index)} className="absolute bottom-2 right-2 p-1.5 bg-red-500/20 hover:bg-red-500/40 rounded-lg text-white/70 hover:text-white transition-colors"><Trash2 size={14} /></button>
+                          ))}
+                          <button onClick={addBadge} className="w-full flex items-center justify-center gap-2 px-5 py-3 bg-white/10 hover:bg-white/20 rounded-xl text-white transition-colors border-2 border-white/20 font-bold"><Plus size={20} />Add Badge</button>
                         </div>
-                      ))}
-                    </div>
-                  </div>
-                )}
+                      </div>
+                      <div className="animate-section-fade-in" style={{ animationDelay: '0.2s' }}>
+                        <FieldLabel><span className="flex items-center gap-2"><Sparkles size={18} className="text-white/70" />Reflection</span></FieldLabel>
+                        <p className="text-white/60 text-sm mb-3">What's something you learned?</p>
+                        <textarea value={reflection} onChange={(e) => setReflection(e.target.value)} placeholder="Share a meaningful insight or lesson..." className="w-full px-4 sm:px-5 py-3 sm:py-4 rounded-xl bg-white/10 border-2 border-white/20 text-white placeholder-white/50 focus:outline-none focus:ring-2 focus:ring-white/50 focus:border-transparent backdrop-blur-sm font-medium text-base sm:text-lg min-h-[100px] sm:min-h-[120px] resize-none" />
+                      </div>
+                      <div className="animate-section-fade-in" style={{ animationDelay: '0.3s' }}>
+                        <FieldLabel>Background Music</FieldLabel>
+                        <select value={selectedMusic} onChange={(e) => handleMusicSelect(e.target.value)} className="w-full px-4 sm:px-5 py-3 sm:py-4 rounded-xl bg-white/[0.06] border border-white/[0.08] text-white focus:outline-none focus:bg-white/[0.08] focus:border-white/30 backdrop-blur-sm font-medium text-base sm:text-lg transition-all duration-300 shadow-[inset_0_1px_2px_rgba(0,0,0,0.1)]">
+                          {musicTracks.map(track => (<option key={track.id} value={track.id} className="bg-gray-900 text-white">{track.name}</option>))}
+                        </select>
+                        {selectedMusic === 'custom' && (
+                          <label className="mt-3 flex items-center gap-3 px-4 py-3 bg-white/[0.06] hover:bg-white/[0.1] rounded-xl text-white/60 transition-all duration-300 border border-dashed border-white/[0.15] hover:border-white/30 cursor-pointer">
+                            <Upload size={20} />
+                            <span className="font-medium">{customMusicFile ? customMusicFile.name : 'Choose audio file (.mp3, .wav, etc.)'}</span>
+                            <input type="file" accept="audio/*" onChange={(e) => handleCustomMusicUpload(e.target.files[0])} className="hidden" />
+                          </label>
+                        )}
+                        {audioRef.current && (<p className="text-white/40 text-sm mt-2">Use the speaker button to play/pause music</p>)}
+                      </div>
+                    </>
+                  )}
 
-                <div><FieldLabel>Add a Badge to your Wrap</FieldLabel><div className="space-y-4">{badges.map((badge, index) => (<div key={index} className="p-4 bg-white/5 rounded-xl border border-white/10 space-y-3"><div className="flex gap-3 items-start"><div className="relative"><button onClick={() => setShowEmojiPicker(showEmojiPicker === index ? null : index)} className="w-14 sm:w-16 h-14 sm:h-16 text-2xl sm:text-3xl rounded-xl bg-white/10 border-2 border-white/20 hover:bg-white/20 transition-colors flex items-center justify-center">{badge.emoji}</button>{showEmojiPicker === index && <EmojiPicker selectedEmoji={badge.emoji} onSelect={(emoji) => updateBadge(index, 'emoji', emoji)} onClose={() => setShowEmojiPicker(null)} />}</div><div className="flex-1 space-y-2"><input type="text" value={badge.title} onChange={(e) => updateBadge(index, 'title', e.target.value)} placeholder="Badge Title (e.g., Top Reader)" className="w-full px-4 sm:px-5 py-3 rounded-xl bg-white/10 border-2 border-white/20 text-white placeholder-white/50 focus:outline-none focus:ring-2 focus:ring-white/50 backdrop-blur-sm font-medium text-sm sm:text-base" /><input type="text" value={badge.subtext || ''} onChange={(e) => updateBadge(index, 'subtext', e.target.value)} placeholder="Subtext (Completed Reading Goal)" className="w-full px-4 py-2 rounded-xl bg-white/5 border border-white/10 text-white/80 placeholder-white/40 focus:outline-none focus:ring-2 focus:ring-white/30 backdrop-blur-sm text-sm" /></div><button onClick={() => removeBadge(index)} className="px-4 py-3 bg-red-500/20 hover:bg-red-500/40 rounded-xl text-white transition-colors border-2 border-red-500/40"><Trash2 size={20} /></button></div></div>))}<button onClick={addBadge} className="w-full flex items-center justify-center gap-2 px-5 py-3 bg-white/10 hover:bg-white/20 rounded-xl text-white transition-colors border-2 border-white/20 font-bold"><Plus size={20} />Add Badge</button></div></div>
-                <div title="Add a personal reflection that will appear as a special sparkle slide at the end"><FieldLabel><span className="flex items-center gap-2"><Sparkles size={18} className="text-white/70" />Reflection</span></FieldLabel><p className="text-white/60 text-sm mb-3">What's something you learned?</p><textarea value={reflection} onChange={(e) => setReflection(e.target.value)} placeholder="Share a meaningful insight or lesson..." className="w-full px-4 sm:px-5 py-3 sm:py-4 rounded-xl bg-white/10 border-2 border-white/20 text-white placeholder-white/50 focus:outline-none focus:ring-2 focus:ring-white/50 focus:border-transparent backdrop-blur-sm font-medium text-base sm:text-lg min-h-[100px] sm:min-h-[120px] resize-none" /></div>
-                <div title="Choose the color theme and atmosphere for your Wrapped"><FieldLabel>Choose your Wrap Mood</FieldLabel><MoodSelector selectedMood={selectedMood} onSelect={setSelectedMood} /></div>
-                <button onClick={generateWrapped} className="w-full px-6 sm:px-8 py-4 sm:py-5 bg-white hover:bg-white/90 text-black font-black rounded-xl transition-all text-lg sm:text-xl shadow-xl hover:shadow-2xl hover:scale-[1.02] uppercase tracking-wide">Generate My Wrap</button>
+                  {/* Navigation buttons */}
+                  <div className="flex gap-3 pt-4">
+                    {cawSlide > 0 && (
+                      <button onClick={prevCawSlide} className="flex-1 flex items-center justify-center gap-2 px-6 py-4 bg-white/10 hover:bg-white/20 rounded-xl text-white transition-all duration-300 backdrop-blur-sm border border-white/20 font-bold">
+                        <ArrowLeft size={20} />
+                        Back
+                      </button>
+                    )}
+                    {cawSlide < 2 ? (
+                      <button
+                        onClick={nextCawSlide}
+                        disabled={!canProceedFromSlide(cawSlide)}
+                        className={`flex-1 flex items-center justify-center gap-2 px-6 py-4 rounded-xl font-bold transition-all duration-300 ${canProceedFromSlide(cawSlide) ? 'bg-white/20 hover:bg-white/30 text-white backdrop-blur-sm border border-white/30' : 'bg-white/5 text-white/30 cursor-not-allowed border border-white/10'}`}
+                      >
+                        Next: {cawSlideNames[cawSlide + 1]}
+                        <ArrowRight size={20} />
+                      </button>
+                    ) : (
+                      <button onClick={generateWrapped} className="flex-1 px-6 sm:px-8 py-4 sm:py-5 bg-white hover:bg-white/90 text-black font-black rounded-xl transition-all text-lg sm:text-xl shadow-xl hover:shadow-2xl hover:scale-[1.02] uppercase tracking-wide">
+                        Generate My Wrap
+                      </button>
+                    )}
+                  </div>
+                </div>
               </div>
             </div>
           </div>
-        </div>
         )}
 
         {/* Create page animations */}
         <style>{`
-          /* Aura floating animations for Create page */
           @keyframes aura-float-1 {
             0%, 100% { transform: translate(0, 0) scale(1); }
             20% { transform: translate(60px, -40px) scale(1.05); }
@@ -3171,19 +3486,11 @@ export default function App() {
           .aura-float-2 { animation: aura-float-2 55s ease-in-out infinite; }
           .aura-float-3 { animation: aura-float-3 35s ease-in-out infinite; }
           .aura-pulse { animation: aura-pulse 8s ease-in-out infinite; }
-
-          /* Mobile shimmer for depth */
           @keyframes mobile-shimmer {
-            0%, 100% {
-              background: radial-gradient(ellipse 60% 40% at 30% 30%, rgba(255,255,255,0.15) 0%, transparent 60%);
-            }
-            50% {
-              background: radial-gradient(ellipse 60% 40% at 70% 60%, rgba(255,255,255,0.15) 0%, transparent 60%);
-            }
+            0%, 100% { background: radial-gradient(ellipse 60% 40% at 30% 30%, rgba(255,255,255,0.15) 0%, transparent 60%); }
+            50% { background: radial-gradient(ellipse 60% 40% at 70% 60%, rgba(255,255,255,0.15) 0%, transparent 60%); }
           }
           .mobile-shimmer { animation: mobile-shimmer 15s ease-in-out infinite; }
-
-          /* Form frame glow animation */
           @keyframes form-glow-in {
             0% { box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5), 0 0 0px rgba(139, 92, 246, 0); }
             100% { box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5), 0 0 60px rgba(139, 92, 246, 0.08), 0 0 120px rgba(139, 92, 246, 0.04); }
@@ -3192,18 +3499,12 @@ export default function App() {
             0%, 100% { box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5), 0 0 60px rgba(139, 92, 246, 0.06), 0 0 120px rgba(139, 92, 246, 0.03); }
             50% { box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5), 0 0 80px rgba(139, 92, 246, 0.1), 0 0 150px rgba(139, 92, 246, 0.05); }
           }
-          .form-card-glow {
-            animation: form-glow-in 1s ease-out forwards, form-glow-pulse 6s ease-in-out 1s infinite;
-          }
-
-          /* Form entrance animation */
+          .form-card-glow { animation: form-glow-in 1s ease-out forwards, form-glow-pulse 6s ease-in-out 1s infinite; }
           @keyframes form-entrance {
             0% { opacity: 0; transform: translateY(50px) scale(0.96); }
             100% { opacity: 1; transform: translateY(0) scale(1); }
           }
           .animate-form-entrance { animation: form-entrance 0.8s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
-
-          /* Title animations */
           @keyframes title-slide-in {
             0% { opacity: 0; transform: translateY(-25px); }
             100% { opacity: 1; transform: translateY(0); }
@@ -3214,8 +3515,6 @@ export default function App() {
           }
           .animate-title-slide-in { animation: title-slide-in 0.7s cubic-bezier(0.16, 1, 0.3, 1) 0.2s forwards; opacity: 0; }
           .animate-subtitle-slide-in { animation: subtitle-slide-in 0.6s ease-out 0.4s forwards; opacity: 0; }
-
-          /* Section fade animations */
           @keyframes section-fade-in {
             0% { opacity: 0; transform: translateY(12px); }
             100% { opacity: 1; transform: translateY(0); }
