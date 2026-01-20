@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
-import { Share2, Plus, Trash2, ArrowRight, ArrowLeft, Sparkles, Volume2, VolumeX, Upload, X, Star, Edit3, ImagePlus, Book, Plane, Heart, GraduationCap, Film, Dumbbell, Lock, Bell, Check, ChevronRight, Lightbulb, Camera, Link, Copy, Loader2, GripVertical, Palette } from 'lucide-react';
+import { Share2, Plus, Trash2, ArrowRight, ArrowLeft, ArrowUp, ArrowDown, Sparkles, Volume2, VolumeX, Upload, X, Star, Edit3, ImagePlus, Book, Plane, Heart, GraduationCap, Film, Dumbbell, Lock, Bell, Check, ChevronRight, Lightbulb, Camera, Link, Copy, Loader2, Palette } from 'lucide-react';
 
 export default function App() {
   const [step, setStep] = useState('home');
@@ -60,6 +60,10 @@ export default function App() {
   // Onboarding slideshow state
   const [showOnboarding, setShowOnboarding] = useState(false);
   const [showFormAfterOnboarding, setShowFormAfterOnboarding] = useState(false);
+
+  // Loading screen state for heavy transitions
+  const [isGeneratingWrap, setIsGeneratingWrap] = useState(false);
+  const [loadingMessage, setLoadingMessage] = useState('');
   const [hasSeenOnboarding, setHasSeenOnboarding] = useState(() => {
     if (typeof window !== 'undefined') {
       return localStorage.getItem('mywrap_seen_onboarding') === 'true';
@@ -74,8 +78,8 @@ export default function App() {
   const [showColorPicker, setShowColorPicker] = useState(false);
   const [showTemplateDialog, setShowTemplateDialog] = useState(null); // template id when dialog is open
 
-  // Drag-and-drop state for content reordering
-  const [draggedContentIndex, setDraggedContentIndex] = useState(null);
+  // Animation state for content reordering
+  const [movingContentIndex, setMovingContentIndex] = useState(null);
 
   // Scroll state for hiding nav buttons
   const [isScrolled, setIsScrolled] = useState(false);
@@ -156,8 +160,9 @@ export default function App() {
     { id: 'custom', name: 'Upload Your Own Music', url: 'custom' },
   ];
 
-  // Glow colors for Moments
+  // Glow colors for Moments - 'auto' uses extracted photo color
   const momentGlowColors = [
+    { id: 'auto', name: 'Auto', color: 'auto', glow: 'auto' }, // Extracted from photo
     { id: 'gold', name: 'Golden', color: '#fbbf24', glow: 'rgba(251, 191, 36, 0.6)' },
     { id: 'rose', name: 'Rose', color: '#f472b6', glow: 'rgba(244, 114, 182, 0.6)' },
     { id: 'cyan', name: 'Cyan', color: '#22d3ee', glow: 'rgba(34, 211, 238, 0.6)' },
@@ -165,6 +170,83 @@ export default function App() {
     { id: 'emerald', name: 'Emerald', color: '#34d399', glow: 'rgba(52, 211, 153, 0.6)' },
     { id: 'white', name: 'White', color: '#f8fafc', glow: 'rgba(248, 250, 252, 0.5)' },
   ];
+
+  // Extract dominant color from image using canvas sampling
+  const extractDominantColor = useCallback((imageSrc) => {
+    return new Promise((resolve) => {
+      const img = new Image();
+      img.crossOrigin = 'anonymous';
+      img.onload = () => {
+        try {
+          const canvas = document.createElement('canvas');
+          const ctx = canvas.getContext('2d');
+          // Use small sample size for performance
+          const sampleSize = 50;
+          canvas.width = sampleSize;
+          canvas.height = sampleSize;
+          ctx.drawImage(img, 0, 0, sampleSize, sampleSize);
+
+          const imageData = ctx.getImageData(0, 0, sampleSize, sampleSize);
+          const data = imageData.data;
+
+          // Simple average color with saturation boost
+          let r = 0, g = 0, b = 0, count = 0;
+
+          // Sample every 4th pixel for speed
+          for (let i = 0; i < data.length; i += 16) {
+            const pr = data[i];
+            const pg = data[i + 1];
+            const pb = data[i + 2];
+            const pa = data[i + 3];
+
+            // Skip transparent pixels
+            if (pa < 128) continue;
+
+            // Skip very dark or very light pixels (often backgrounds)
+            const brightness = (pr + pg + pb) / 3;
+            if (brightness < 30 || brightness > 230) continue;
+
+            r += pr;
+            g += pg;
+            b += pb;
+            count++;
+          }
+
+          if (count === 0) {
+            resolve({ color: '#a78bfa', glow: 'rgba(167, 139, 250, 0.6)' }); // Fallback violet
+            return;
+          }
+
+          r = Math.round(r / count);
+          g = Math.round(g / count);
+          b = Math.round(b / count);
+
+          // Boost saturation slightly for more vibrant glow
+          const max = Math.max(r, g, b);
+          const min = Math.min(r, g, b);
+          const satBoost = 1.2;
+
+          if (max !== min) {
+            const mid = (max + min) / 2;
+            r = Math.min(255, Math.round(mid + (r - mid) * satBoost));
+            g = Math.min(255, Math.round(mid + (g - mid) * satBoost));
+            b = Math.min(255, Math.round(mid + (b - mid) * satBoost));
+          }
+
+          const hexColor = `#${r.toString(16).padStart(2, '0')}${g.toString(16).padStart(2, '0')}${b.toString(16).padStart(2, '0')}`;
+          const glowColor = `rgba(${r}, ${g}, ${b}, 0.6)`;
+
+          resolve({ color: hexColor, glow: glowColor });
+        } catch (e) {
+          resolve({ color: '#a78bfa', glow: 'rgba(167, 139, 250, 0.6)' }); // Fallback
+        }
+      };
+      img.onerror = () => {
+        resolve({ color: '#a78bfa', glow: 'rgba(167, 139, 250, 0.6)' }); // Fallback
+      };
+      img.src = imageSrc;
+    });
+  }, []);
 
   // Color presets for CAW color picker
   const colorPresets = [
@@ -305,34 +387,26 @@ export default function App() {
     setShowTransitionPicker(null);
   };
 
-  // Drag-and-drop handlers for content reordering
-  const handleContentDragStart = (contentIndex) => {
-    setDraggedContentIndex(contentIndex);
-  };
-
-  const handleContentDragOver = (e) => {
-    e.preventDefault();
-  };
-
-  const handleContentDrop = (targetIndex) => {
-    if (draggedContentIndex === null || draggedContentIndex === targetIndex) {
-      setDraggedContentIndex(null);
-      return;
-    }
-
+  // Up/Down reordering for content items (replaces drag-and-drop for mobile reliability)
+  const moveContentUp = useCallback((orderIndex) => {
+    if (orderIndex <= 0) return;
     const newOrder = [...contentOrder];
-    const [removed] = newOrder.splice(draggedContentIndex, 1);
-    newOrder.splice(targetIndex, 0, removed);
+    // Swap with previous item
+    [newOrder[orderIndex - 1], newOrder[orderIndex]] = [newOrder[orderIndex], newOrder[orderIndex - 1]];
     setContentOrder(newOrder);
-
-    // Clear transitions since order changed (indices are now different)
+    // Clear transitions since order changed
     setTransitions({});
-    setDraggedContentIndex(null);
-  };
+  }, [contentOrder]);
 
-  const handleContentDragEnd = () => {
-    setDraggedContentIndex(null);
-  };
+  const moveContentDown = useCallback((orderIndex) => {
+    if (orderIndex >= contentOrder.length - 1) return;
+    const newOrder = [...contentOrder];
+    // Swap with next item
+    [newOrder[orderIndex], newOrder[orderIndex + 1]] = [newOrder[orderIndex + 1], newOrder[orderIndex]];
+    setContentOrder(newOrder);
+    // Clear transitions since order changed
+    setTransitions({});
+  }, [contentOrder]);
 
   const addStat = () => {
     const newIndex = stats.length;
@@ -367,7 +441,8 @@ export default function App() {
   // Moment functions
   const addMoment = () => {
     const newIndex = moments.length;
-    setMoments([...moments, { label: '', image: null, glowColor: 'gold' }]);
+    // Default to 'auto' glow which extracts color from photo
+    setMoments([...moments, { label: '', image: null, glowColor: 'auto', extractedColor: null }]);
     setContentOrder([...contentOrder, { type: 'moment', index: newIndex }]);
   };
   const removeMoment = (index) => {
@@ -475,7 +550,7 @@ export default function App() {
 
   const removeImage = (index) => { const newStats = [...stats]; newStats[index].image = null; setStats(newStats); };
 
-  // Moment image upload
+  // Moment image upload - also extracts dominant color for auto glow
   const handleMomentImageUpload = async (index, file) => {
     if (!file) return;
     const fileExtension = file.name.toLowerCase().split('.').pop();
@@ -487,7 +562,22 @@ export default function App() {
     }
     if (file.type.startsWith('image/') || ['jpg', 'jpeg', 'png', 'gif', 'webp', 'svg'].includes(fileExtension)) {
       const compressed = await compressImage(file, 'high'); // Moments - high quality
-      const newMoments = [...moments]; newMoments[index].image = compressed; setMoments(newMoments);
+      const newMoments = [...moments];
+      newMoments[index].image = compressed;
+
+      // Extract dominant color for auto glow (non-blocking)
+      extractDominantColor(compressed).then(({ color, glow }) => {
+        setMoments(prev => {
+          const updated = [...prev];
+          if (updated[index]) {
+            updated[index].extractedColor = color;
+            updated[index].extractedGlow = glow;
+          }
+          return updated;
+        });
+      });
+
+      setMoments(newMoments);
     } else {
       setImageFormatError('Unsupported image format. Please use JPEG, PNG, GIF, or WebP.');
       setTimeout(() => setImageFormatError(null), 5000);
@@ -590,20 +680,49 @@ export default function App() {
   const generateWrapped = () => {
     setAttemptedSubmit(true);
     if (!validateForm()) return;
-    setStep('preview'); setCurrentSlide(0); setViewedHighlights(new Set()); setViewedBadges(new Set());
-    setViewedReflection(false); setShowConfetti(false); setTextPlayedSlides(new Set()); setSlideTextTheme({});
-    starsShownForSlide.current = null; setStarsVisible(false); // Reset falling stars
-    confettiPlayed.current = false; // Reset confetti for new wrap preview
+
+    // Show loading screen immediately to mask heavy processing
+    setIsGeneratingWrap(true);
+    setLoadingMessage('Generating your wrap…');
+
+    // Use requestAnimationFrame to ensure loading screen renders before heavy work
+    requestAnimationFrame(() => {
+      // Small delay to ensure smooth loading screen appearance
+      setTimeout(() => {
+        setStep('preview');
+        setCurrentSlide(0);
+        setViewedHighlights(new Set());
+        setViewedBadges(new Set());
+        setViewedReflection(false);
+        setShowConfetti(false);
+        setTextPlayedSlides(new Set());
+        setSlideTextTheme({});
+        starsShownForSlide.current = null;
+        setStarsVisible(false);
+        confettiPlayed.current = false;
+
+        // Hide loading after a brief moment to ensure everything is ready
+        requestAnimationFrame(() => {
+          setTimeout(() => setIsGeneratingWrap(false), 300);
+        });
+      }, 100);
+    });
   };
 
   const editWrapped = () => { setStep('input'); setShowConfetti(false); setAttemptedSubmit(false); setValidationErrors({}); };
 
-  // Start creating - shows onboarding on first visit
+  // Start creating - shows onboarding on first visit (form deferred until tour complete)
   const startCreating = () => {
     setStep('input');
-    // Always show onboarding for now (remove hasSeenOnboarding check temporarily for testing)
-    setShowOnboarding(true);
-    setShowFormAfterOnboarding(true); // Show form behind blur so tour overlays it
+    if (!hasSeenOnboarding) {
+      // First-time user: show tour first, defer CAW form mount until tour completes
+      setShowOnboarding(true);
+      setShowFormAfterOnboarding(false); // Don't mount form yet - wait for tour to complete
+    } else {
+      // Returning user: skip tour, show form immediately
+      setShowOnboarding(false);
+      setShowFormAfterOnboarding(true);
+    }
   };
 
   const resetWrapped = () => {
@@ -2120,15 +2239,159 @@ export default function App() {
     );
   };
 
-  const Confetti = ({ onComplete }) => {
-    const [particles, setParticles] = useState([]);
-    useEffect(() => {
+  // Loading screen for heavy transitions (wrap generation, etc.)
+  const LoadingScreen = ({ message }) => (
+    <div className="fixed inset-0 z-[300] flex items-center justify-center bg-black/90 backdrop-blur-md">
+      <div className="flex flex-col items-center gap-6">
+        {/* Animated logo */}
+        <div className="relative">
+          <div className="absolute inset-0 w-24 h-24 rounded-full blur-2xl bg-purple-500/40 animate-pulse" />
+          <img src="/MyWrap-Logo.png" alt="Loading" className="relative w-24 h-24 object-contain animate-bounce-slow" />
+        </div>
+        {/* Loading spinner */}
+        <div className="relative w-12 h-12">
+          <div className="absolute inset-0 rounded-full border-4 border-white/10" />
+          <div className="absolute inset-0 rounded-full border-4 border-transparent border-t-purple-500 animate-spin" />
+        </div>
+        {/* Loading text */}
+        <p className="text-white/80 text-lg font-medium animate-pulse">{message || 'Loading…'}</p>
+      </div>
+      <style>{`
+        @keyframes bounce-slow {
+          0%, 100% { transform: translateY(0); }
+          50% { transform: translateY(-10px); }
+        }
+        .animate-bounce-slow { animation: bounce-slow 2s ease-in-out infinite; }
+      `}</style>
+    </div>
+  );
+
+  // Typewriter effect - using direct DOM manipulation to avoid re-renders
+  const typewriterRef = useRef(null);
+  const typewriterStateRef = useRef({
+    currentPhraseIndex: 0,
+    charIndex: 0,
+    isDeleting: false,
+    isPaused: false,
+    pauseUntil: 0
+  });
+
+  const typewriterPhrases = useMemo(() => [
+    'track your moments, insights, and stats.',
+    "Bethany's Birthday Party!! 🥳",
+    'My NYC Move! 🗽',
+    'Dating Era Recap ❤️',
+    'Training for 10K 🏃‍♀️',
+    'Hawaii Trip (Worst & Best Moments) 🏖️',
+    '2026 Vision Board ⭐️',
+    'Rejection Therapy Week 1 💪',
+    'Social Media Content Recap 📸',
+    'Family Reunion 2026 🧑‍🧑‍🧒‍🧒',
+  ], []);
+
+  // Typewriter animation using setInterval with direct DOM updates (no state re-renders)
+  useEffect(() => {
+    if (step !== 'home') return;
+
+    // Check for reduced motion preference
+    const prefersReducedMotion = typeof window !== 'undefined' &&
+      window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+    if (prefersReducedMotion && typewriterRef.current) {
+      typewriterRef.current.textContent = typewriterPhrases[0];
+      return;
+    }
+
+    const interval = setInterval(() => {
+      if (!typewriterRef.current) return;
+
+      const state = typewriterStateRef.current;
+      const now = Date.now();
+
+      // Handle pause
+      if (state.pauseUntil > now) return;
+
+      const currentPhrase = typewriterPhrases[state.currentPhraseIndex];
+
+      if (state.isDeleting) {
+        // Deleting characters
+        if (state.charIndex > 0) {
+          state.charIndex--;
+          typewriterRef.current.textContent = currentPhrase.slice(0, state.charIndex);
+        } else {
+          // Done deleting, move to next phrase
+          state.isDeleting = false;
+          state.currentPhraseIndex = (state.currentPhraseIndex + 1) % typewriterPhrases.length;
+        }
+      } else {
+        // Typing characters
+        if (state.charIndex < currentPhrase.length) {
+          state.charIndex++;
+          typewriterRef.current.textContent = currentPhrase.slice(0, state.charIndex);
+        } else {
+          // Done typing, pause then start deleting
+          state.pauseUntil = now + 2000; // 2 second pause
+          state.isDeleting = true;
+        }
+      }
+    }, 50); // Base tick rate
+
+    return () => clearInterval(interval);
+  }, [step, typewriterPhrases]);
+
+  // Typewriter display component - uses ref for text updates, no state
+  const TypewriterText = () => (
+    <span className="text-white/50">
+      Your personalized recap:{' '}
+      <span className="text-white/70 inline-block min-w-[1ch]">
+        <span ref={typewriterRef}></span>
+        <span className="animate-blink text-purple-400">|</span>
+      </span>
+      <style>{`
+        @keyframes blink {
+          0%, 50% { opacity: 1; }
+          51%, 100% { opacity: 0; }
+        }
+        .animate-blink { animation: blink 1s infinite; }
+      `}</style>
+    </span>
+  );
+
+  // Confetti particles - generated once and stored in ref to prevent regeneration on re-render
+  const confettiParticlesRef = useRef(null);
+  const confettiTimerRef = useRef(null);
+
+  const hideConfetti = useCallback(() => {
+    setShowConfetti(false);
+  }, []);
+
+  // Generate confetti particles once when shown
+  useEffect(() => {
+    if (showConfetti && !confettiParticlesRef.current) {
       const colors = ['#ff0080', '#ff8c00', '#ffef00', '#00ff88', '#00cfff', '#8000ff', '#ff006e', '#fb5607'];
-      setParticles(Array.from({ length: 150 }, (_, i) => ({ id: i, x: Math.random() * 100, delay: Math.random() * 2, duration: 2 + Math.random() * 2, color: colors[Math.floor(Math.random() * colors.length)], size: 8 + Math.random() * 12, rotation: Math.random() * 360, type: Math.random() > 0.5 ? 'square' : 'circle' })));
+      confettiParticlesRef.current = Array.from({ length: 150 }, (_, i) => ({
+        id: i,
+        x: Math.random() * 100,
+        delay: Math.random() * 2,
+        duration: 2 + Math.random() * 2,
+        color: colors[Math.floor(Math.random() * colors.length)],
+        size: 8 + Math.random() * 12,
+        rotation: Math.random() * 360,
+        type: Math.random() > 0.5 ? 'square' : 'circle'
+      }));
       // Auto-hide after animations complete (max delay 2s + max duration 4s + buffer)
-      const timer = setTimeout(() => { if (onComplete) onComplete(); }, 6500);
-      return () => clearTimeout(timer);
-    }, [onComplete]);
+      confettiTimerRef.current = setTimeout(hideConfetti, 6500);
+    }
+    if (!showConfetti) {
+      confettiParticlesRef.current = null; // Reset for next time
+    }
+    return () => {
+      if (confettiTimerRef.current) clearTimeout(confettiTimerRef.current);
+    };
+  }, [showConfetti, hideConfetti]);
+
+  const Confetti = () => {
+    const particles = confettiParticlesRef.current || [];
     return (<div className="fixed inset-0 pointer-events-none z-50 overflow-hidden">{particles.map(p => (<div key={p.id} className="absolute animate-confetti" style={{ left: `${p.x}%`, top: '-20px', animationDelay: `${p.delay}s`, animationDuration: `${p.duration}s` }}><div style={{ width: p.size, height: p.size, backgroundColor: p.color, borderRadius: p.type === 'circle' ? '50%' : '2px', transform: `rotate(${p.rotation}deg)` }} /></div>))}<style>{`@keyframes confetti { 0% { transform: translateY(0) rotate(0deg) scale(1); opacity: 1; } 100% { transform: translateY(100vh) rotate(720deg) scale(0.5); opacity: 0; } } .animate-confetti { animation: confetti ease-out forwards; }`}</style></div>);
   };
 
@@ -2227,7 +2490,17 @@ export default function App() {
   // Moment Slide - immersive photo-first experience
   const MomentSlide = ({ moment, isFirstView, dateRange }) => {
     const [shouldAnimate] = useState(isFirstView);
-    const glowConfig = momentGlowColors.find(g => g.id === moment.glowColor) || momentGlowColors[0];
+
+    // Handle 'auto' glow color - use extracted color from photo
+    const isAutoGlow = moment.glowColor === 'auto';
+    const glowConfig = isAutoGlow
+      ? {
+          id: 'auto',
+          name: 'Auto',
+          color: moment.extractedColor || '#a78bfa',
+          glow: moment.extractedGlow || 'rgba(167, 139, 250, 0.6)'
+        }
+      : (momentGlowColors.find(g => g.id === moment.glowColor) || momentGlowColors[1]); // Fallback to gold (index 1)
 
     return (
       <div
@@ -2705,10 +2978,10 @@ export default function App() {
             </div>
             <p className={`text-white/70 text-[10px] sm:text-xs font-medium uppercase tracking-widest mt-1 ${shouldAnimate ? 'animate-fade-in-up' : ''}`} style={shouldAnimate ? { animationDelay: '0.3s' } : { opacity: 1 }}>Your moments, wrapped up.</p>
 
-            {/* What is a Wrapped? */}
+            {/* What is a Wrapped? - with typewriter effect */}
             <div className={`mt-6 flex items-start justify-center gap-1.5 text-white/60 text-sm max-w-md mx-auto ${shouldAnimate ? 'animate-fade-in-up' : ''}`} style={shouldAnimate ? { animationDelay: '0.5s' } : { opacity: 1 }}>
-              <p>
-                <span className="text-white/50">Your personalized recap: track your moments, insights, and stats.</span>
+              <p className="text-center">
+                <TypewriterText />
               </p>
             </div>
           </header>
@@ -3041,6 +3314,17 @@ export default function App() {
     );
   }
 
+  // Loading screen during wrap generation (mobile performance fix)
+  if (isGeneratingWrap) {
+    return (
+      <div className="min-h-screen relative" style={safariColorBoostStyle}>
+        <DynamicBackground moodId={selectedMood} />
+        <NoiseOverlay />
+        <LoadingScreen message={loadingMessage} />
+      </div>
+    );
+  }
+
   // Error screen when wrap not found
   if (loadError) {
     return (
@@ -3264,17 +3548,19 @@ export default function App() {
                       <div className="animate-section-fade-in" style={{ animationDelay: '0.1s' }}>
                         <FieldLabel>Quick Start Templates</FieldLabel>
                         <TemplateSelector selectedTemplate={selectedTemplate} onSelect={handleTemplateClick} />
-                        <p className="text-white/40 text-xs mt-2 italic">Templates add suggested stats without changing your mood.</p>
+                        <p className="text-white/40 text-xs mt-2 italic">Templates add suggested stats to complete.</p>
                       </div>
                       <div className="animate-section-fade-in" style={{ animationDelay: '0.2s' }}>
                         <FieldLabel required error={validationErrors.stats}>Your Content</FieldLabel>
                         {validationErrors.stats && <p className="text-red-400 text-sm mb-3">Please add at least one complete stat (label and value)</p>}
-                        <p className="text-white/50 text-xs mb-3">Drag items to reorder. Add transitions between slides.</p>
+                        <p className="text-white/50 text-sm mb-1">Add <span className="text-white/70 font-medium">Stats</span> for numbers, metrics, or lists. Add <span className="text-white/70 font-medium">Moments</span> for photos, memories, or highlights.</p>
+                        <p className="text-white/40 text-xs mb-3">Use ↑↓ to reorder • Add transitions between slides</p>
                         <div className="space-y-2">
                           {/* Unified content list based on contentOrder */}
                           {contentOrder.map((item, orderIndex) => {
-                            const isBeingDragged = draggedContentIndex === orderIndex;
+                            const isFirst = orderIndex === 0;
                             const isLast = orderIndex === contentOrder.length - 1;
+                            const isMoving = movingContentIndex === orderIndex;
 
                             if (item.type === 'stat') {
                               const stat = stats[item.index];
@@ -3282,19 +3568,29 @@ export default function App() {
                               return (
                                 <React.Fragment key={`content-${orderIndex}-stat-${item.index}`}>
                                   <div
-                                    draggable
-                                    onDragStart={() => handleContentDragStart(orderIndex)}
-                                    onDragOver={handleContentDragOver}
-                                    onDrop={() => handleContentDrop(orderIndex)}
-                                    onDragEnd={handleContentDragEnd}
-                                    className={`relative space-y-3 p-4 pb-10 bg-white/[0.03] rounded-xl border border-white/[0.06] transition-all duration-300 hover:bg-white/[0.04] hover:border-white/[0.1] cursor-grab active:cursor-grabbing ${isBeingDragged ? 'opacity-50 scale-[0.98]' : ''}`}
+                                    className={`relative space-y-3 p-4 pb-10 bg-white/[0.03] rounded-xl border border-white/[0.06] transition-all duration-200 hover:bg-white/[0.04] hover:border-white/[0.1] ${isMoving ? 'scale-[0.98] opacity-70' : ''}`}
                                   >
-                                    {/* Drag handle indicator */}
-                                    <div className="absolute top-2 left-2 text-white/30 hover:text-white/60">
-                                      <GripVertical size={16} />
+                                    {/* Up/Down reorder controls */}
+                                    <div className="absolute top-2 left-2 flex flex-col gap-0.5">
+                                      <button
+                                        onClick={() => { setMovingContentIndex(orderIndex); moveContentUp(orderIndex); setTimeout(() => setMovingContentIndex(null), 200); }}
+                                        disabled={isFirst}
+                                        className={`p-1 rounded transition-all ${isFirst ? 'text-white/10 cursor-not-allowed' : 'text-white/40 hover:text-white/80 hover:bg-white/10'}`}
+                                        title="Move up"
+                                      >
+                                        <ArrowUp size={14} />
+                                      </button>
+                                      <button
+                                        onClick={() => { setMovingContentIndex(orderIndex); moveContentDown(orderIndex); setTimeout(() => setMovingContentIndex(null), 200); }}
+                                        disabled={isLast}
+                                        className={`p-1 rounded transition-all ${isLast ? 'text-white/10 cursor-not-allowed' : 'text-white/40 hover:text-white/80 hover:bg-white/10'}`}
+                                        title="Move down"
+                                      >
+                                        <ArrowDown size={14} />
+                                      </button>
                                     </div>
                                     <div className="absolute top-2 right-2 text-white/40 text-xs font-medium uppercase tracking-wide">Stat</div>
-                                    <div className="flex flex-col sm:flex-row gap-3 pt-4">
+                                    <div className="flex flex-col sm:flex-row gap-3 pt-6 pl-6 sm:pt-4 sm:pl-8">
                                       <input type="text" value={stat.label} onChange={(e) => updateStat(item.index, 'label', e.target.value)} placeholder="Stat Label (e.g., Books Read)" className={`flex-1 px-4 sm:px-5 py-3 sm:py-4 rounded-xl bg-white/[0.06] border text-white placeholder-white/40 focus:outline-none focus:bg-white/[0.08] focus:border-white/30 backdrop-blur-sm font-bold text-sm sm:text-base transition-all duration-300 shadow-[inset_0_1px_2px_rgba(0,0,0,0.1)] ${validationErrors[`stat-${item.index}-label`] ? 'border-red-500/50' : 'border-white/[0.08]'}`} />
                                       <input type="text" value={stat.value} onChange={(e) => updateStat(item.index, 'value', e.target.value)} placeholder="Value (e.g., 42, Lagos, A+)" className={`flex-1 px-4 sm:px-5 py-3 sm:py-4 rounded-xl bg-white/[0.06] border text-white placeholder-white/40 focus:outline-none focus:bg-white/[0.08] focus:border-white/30 backdrop-blur-sm font-medium text-sm sm:text-base transition-all duration-300 shadow-[inset_0_1px_2px_rgba(0,0,0,0.1)] ${validationErrors[`stat-${item.index}-value`] ? 'border-red-500/50' : 'border-white/[0.08]'}`} />
                                     </div>
@@ -3328,40 +3624,96 @@ export default function App() {
                               return (
                                 <React.Fragment key={`content-${orderIndex}-moment-${item.index}`}>
                                   <div
-                                    draggable
-                                    onDragStart={() => handleContentDragStart(orderIndex)}
-                                    onDragOver={handleContentDragOver}
-                                    onDrop={() => handleContentDrop(orderIndex)}
-                                    onDragEnd={handleContentDragEnd}
-                                    className={`relative p-4 pb-10 bg-gradient-to-br from-purple-500/10 to-pink-500/10 rounded-xl border border-purple-400/20 space-y-4 cursor-grab active:cursor-grabbing ${isBeingDragged ? 'opacity-50 scale-[0.98]' : ''}`}
+                                    className={`relative p-4 pb-10 bg-gradient-to-br from-purple-500/10 to-pink-500/10 rounded-xl border border-purple-400/20 space-y-4 transition-all duration-200 ${isMoving ? 'scale-[0.98] opacity-70' : ''}`}
                                   >
-                                    {/* Drag handle indicator */}
-                                    <div className="absolute top-2 left-2 text-white/30 hover:text-white/60">
-                                      <GripVertical size={16} />
+                                    {/* Up/Down reorder controls */}
+                                    <div className="absolute top-2 left-2 flex flex-col gap-0.5">
+                                      <button
+                                        onClick={() => { setMovingContentIndex(orderIndex); moveContentUp(orderIndex); setTimeout(() => setMovingContentIndex(null), 200); }}
+                                        disabled={isFirst}
+                                        className={`p-1 rounded transition-all ${isFirst ? 'text-white/10 cursor-not-allowed' : 'text-white/40 hover:text-white/80 hover:bg-white/10'}`}
+                                        title="Move up"
+                                      >
+                                        <ArrowUp size={14} />
+                                      </button>
+                                      <button
+                                        onClick={() => { setMovingContentIndex(orderIndex); moveContentDown(orderIndex); setTimeout(() => setMovingContentIndex(null), 200); }}
+                                        disabled={isLast}
+                                        className={`p-1 rounded transition-all ${isLast ? 'text-white/10 cursor-not-allowed' : 'text-white/40 hover:text-white/80 hover:bg-white/10'}`}
+                                        title="Move down"
+                                      >
+                                        <ArrowDown size={14} />
+                                      </button>
                                     </div>
                                     <div className="absolute top-2 right-2 text-purple-400/60 text-xs font-medium uppercase tracking-wide">Moment</div>
-                                    <div className="flex flex-col sm:flex-row gap-4 pt-4">
-                                      {moment.image ? (
-                                        <div className="relative">
-                                          <img src={moment.image} alt="Moment Preview" className="w-full sm:w-40 h-48 sm:h-52 object-cover rounded-xl border-2 border-white/20" />
-                                          <button onClick={() => updateMoment(item.index, 'image', null)} className="absolute top-2 right-2 p-1.5 bg-red-500 hover:bg-red-600 rounded-full text-white transition-colors shadow-lg"><X size={14} /></button>
-                                        </div>
-                                      ) : (
-                                        <label className="flex flex-col items-center justify-center w-full sm:w-40 h-48 sm:h-52 bg-white/5 hover:bg-white/10 rounded-xl text-white/50 transition-colors border-2 border-dashed border-purple-400/30 cursor-pointer">
-                                          <Camera size={32} className="mb-2 text-purple-400/60" />
-                                          <span className="text-sm font-medium">Add Photo</span>
-                                          <span className="text-xs text-white/40 mt-1">(Required)</span>
-                                          <input type="file" accept="image/*" onChange={(e) => handleMomentImageUpload(item.index, e.target.files[0])} className="hidden" />
-                                        </label>
-                                      )}
+                                    <div className="flex flex-col sm:flex-row gap-4 pt-6 pl-6 sm:pt-4 sm:pl-8">
+                                      {(() => {
+                                        // Calculate glow style for preview (works with or without photo)
+                                        const isAutoGlow = moment.glowColor === 'auto';
+                                        const glowConfig = momentGlowColors.find(g => g.id === moment.glowColor) || momentGlowColors[1];
+                                        const previewGlow = isAutoGlow
+                                          ? (moment.extractedGlow || 'rgba(168, 85, 247, 0.5)')
+                                          : glowConfig.glow;
+                                        const previewBorder = isAutoGlow
+                                          ? (moment.extractedColor || '#a855f7')
+                                          : glowConfig.color;
+
+                                        return moment.image ? (
+                                          <div className="relative">
+                                            <img
+                                              src={moment.image}
+                                              alt="Moment Preview"
+                                              className="w-full sm:w-40 h-48 sm:h-52 object-cover rounded-xl border-2 transition-all duration-300"
+                                              style={{
+                                                borderColor: previewBorder,
+                                                boxShadow: `0 0 20px ${previewGlow}, 0 0 40px ${previewGlow}`
+                                              }}
+                                            />
+                                            <button onClick={() => updateMoment(item.index, 'image', null)} className="absolute top-2 right-2 p-1.5 bg-red-500 hover:bg-red-600 rounded-full text-white transition-colors shadow-lg"><X size={14} /></button>
+                                          </div>
+                                        ) : (
+                                          <label
+                                            className="flex flex-col items-center justify-center w-full sm:w-40 h-48 sm:h-52 bg-white/5 hover:bg-white/10 rounded-xl text-white/50 transition-all duration-300 border-2 border-dashed cursor-pointer"
+                                            style={{
+                                              borderColor: previewBorder,
+                                              boxShadow: `0 0 15px ${previewGlow}, 0 0 30px ${previewGlow}`
+                                            }}
+                                          >
+                                            <Camera size={32} className="mb-2 text-purple-400/60" />
+                                            <span className="text-sm font-medium">Add Photo</span>
+                                            <span className="text-xs text-white/40 mt-1">(Required)</span>
+                                            <input type="file" accept="image/*" onChange={(e) => handleMomentImageUpload(item.index, e.target.files[0])} className="hidden" />
+                                          </label>
+                                        );
+                                      })()}
                                       <div className="flex-1 space-y-3">
                                         <input type="text" value={moment.label || ''} onChange={(e) => updateMoment(item.index, 'label', e.target.value)} placeholder="A Moment Worth Remembering" className="w-full px-4 py-3 rounded-xl bg-white/10 border-2 border-white/20 text-white placeholder-white/50 focus:outline-none focus:ring-2 focus:ring-purple-400/50 backdrop-blur-sm font-medium text-sm sm:text-base" />
                                         <div>
                                           <span className="text-white/60 text-xs uppercase tracking-wide mb-2 block">Frame Glow</span>
-                                          <div className="flex gap-2 flex-wrap">
-                                            {momentGlowColors.map(gc => (
-                                              <button key={gc.id} onClick={() => updateMoment(item.index, 'glowColor', gc.id)} className={`w-8 h-8 rounded-full border-2 transition-all ${moment.glowColor === gc.id ? 'border-white scale-110' : 'border-white/30 hover:border-white/60'}`} style={{ background: gc.color, boxShadow: moment.glowColor === gc.id ? `0 0 15px ${gc.glow}` : 'none' }} title={gc.name} />
-                                            ))}
+                                          <div className="flex gap-2 flex-wrap items-center">
+                                            {momentGlowColors.map(gc => {
+                                              // For 'auto', show extracted color or gradient placeholder
+                                              const isAuto = gc.id === 'auto';
+                                              const autoColor = moment.extractedColor || '#888';
+                                              const autoGlow = moment.extractedGlow || 'rgba(136, 136, 136, 0.6)';
+                                              const bgStyle = isAuto
+                                                ? { background: moment.image ? autoColor : 'linear-gradient(135deg, #f472b6, #22d3ee, #a78bfa)' }
+                                                : { background: gc.color };
+                                              const glowStyle = isAuto
+                                                ? (moment.glowColor === gc.id && moment.image ? `0 0 15px ${autoGlow}` : 'none')
+                                                : (moment.glowColor === gc.id ? `0 0 15px ${gc.glow}` : 'none');
+                                              return (
+                                                <button
+                                                  key={gc.id}
+                                                  onClick={() => updateMoment(item.index, 'glowColor', gc.id)}
+                                                  className={`w-8 h-8 rounded-full border-2 transition-all relative ${moment.glowColor === gc.id ? 'border-white scale-110' : 'border-white/30 hover:border-white/60'}`}
+                                                  style={{ ...bgStyle, boxShadow: glowStyle }}
+                                                  title={isAuto ? 'Auto (from photo)' : gc.name}
+                                                >
+                                                  {isAuto && <span className="absolute inset-0 flex items-center justify-center text-white drop-shadow-md"><Sparkles size={12} /></span>}
+                                                </button>
+                                              );
+                                            })}
                                           </div>
                                         </div>
                                       </div>
@@ -3388,6 +3740,7 @@ export default function App() {
                     <>
                       <div className="animate-section-fade-in" style={{ animationDelay: '0.1s' }}>
                         <FieldLabel>Add a Badge to your Wrap</FieldLabel>
+                        <p className="text-white/50 text-sm mb-3">Celebrate achievements with custom badges that appear as special slides.</p>
                         <div className="space-y-4">
                           {badges.map((badge, index) => (
                             <div key={index} className="p-4 bg-white/5 rounded-xl border border-white/10 space-y-3">
@@ -3414,6 +3767,7 @@ export default function App() {
                       </div>
                       <div className="animate-section-fade-in" style={{ animationDelay: '0.3s' }}>
                         <FieldLabel>Background Music</FieldLabel>
+                        <p className="text-white/50 text-sm mb-3">Add a soundtrack that plays while viewing your Wrap.</p>
                         <select value={selectedMusic} onChange={(e) => handleMusicSelect(e.target.value)} className="w-full px-4 sm:px-5 py-3 sm:py-4 rounded-xl bg-white/[0.06] border border-white/[0.08] text-white focus:outline-none focus:bg-white/[0.08] focus:border-white/30 backdrop-blur-sm font-medium text-base sm:text-lg transition-all duration-300 shadow-[inset_0_1px_2px_rgba(0,0,0,0.1)]">
                           {musicTracks.map(track => (<option key={track.id} value={track.id} className="bg-gray-900 text-white">{track.name}</option>))}
                         </select>
@@ -3534,7 +3888,7 @@ export default function App() {
   return (
     <div className="min-h-screen relative overflow-hidden flex items-center justify-center p-3 sm:p-4" style={safariColorBoostStyle} onTouchStart={onTouchStart} onTouchMove={onTouchMove} onTouchEnd={onTouchEnd}>
       <DynamicBackground moodId={selectedMood} /><NoiseOverlay />
-      {showConfetti && <Confetti onComplete={() => setShowConfetti(false)} />}
+      {showConfetti && <Confetti />}
       {activeTransition === 'drumroll' && <DrumrollOverlay count={drumrollCount} fading={drumrollFading} onSkip={nextSlide} />}
 
       <div className="relative z-10 w-full max-w-md mx-auto">
