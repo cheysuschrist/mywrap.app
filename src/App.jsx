@@ -3511,7 +3511,7 @@ export default function App() {
                     <>
                       <div className="animate-section-fade-in" style={{ animationDelay: '0.2s' }}>
                         <FieldLabel required error={validationErrors.title}>Wrap Title</FieldLabel>
-                        <input type="text" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="My 2024 Adventures" className={`w-full px-4 sm:px-5 py-3 sm:py-4 rounded-xl bg-white/[0.06] border text-white placeholder-white/40 focus:outline-none focus:bg-white/[0.08] focus:border-white/30 backdrop-blur-sm font-medium text-base sm:text-lg transition-all duration-300 shadow-[inset_0_1px_2px_rgba(0,0,0,0.1)] ${validationErrors.title ? 'border-red-500/50' : 'border-white/[0.08]'}`} />
+                        <input type="text" value={title} onChange={(e) => setTitle(e.target.value)} placeholder="My Adventures" className={`w-full px-4 sm:px-5 py-3 sm:py-4 rounded-xl bg-white/[0.06] border text-white placeholder-white/40 focus:outline-none focus:bg-white/[0.08] focus:border-white/30 backdrop-blur-sm font-medium text-base sm:text-lg transition-all duration-300 shadow-[inset_0_1px_2px_rgba(0,0,0,0.1)] ${validationErrors.title ? 'border-red-500/50' : 'border-white/[0.08]'}`} />
                         {validationErrors.title && <p className="text-red-400 text-sm mt-2">Please enter a title for your Wrapped</p>}
                       </div>
                       <div className="animate-section-fade-in" style={{ animationDelay: '0.3s' }}>
