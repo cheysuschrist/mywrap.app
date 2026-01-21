@@ -756,7 +756,7 @@ export default function App() {
     console.log('[loadWrap] Fetching wrap:', id);
 
     try {
-      const res = await fetch(`/api/wraps/${id}`);
+      const res = await fetch(`/api/wraps?action=get&id=${id}`);
       console.log('[loadWrap] Response status:', res.status);
 
       // Check if response is JSON
@@ -842,7 +842,7 @@ export default function App() {
   useEffect(() => {
     const checkAuth = async () => {
       try {
-        const res = await fetch('/api/auth/me', { credentials: 'include' });
+        const res = await fetch('/api/auth?action=me', { credentials: 'include' });
         if (res.ok) {
           const userData = await res.json();
           setUser(userData);
@@ -971,7 +971,7 @@ export default function App() {
     // Check wrap limit for free users (pre-check before upload)
     if (user.tier === 'free') {
       try {
-        const checkRes = await fetch('/api/wraps/my-wraps', { credentials: 'include' });
+        const checkRes = await fetch('/api/wraps?action=list', { credentials: 'include' });
         if (checkRes.ok) {
           const { count, limit } = await checkRes.json();
           if (count >= limit) {
@@ -1033,7 +1033,7 @@ export default function App() {
       console.log('[saveWrap] Images uploaded, saving wrap data...');
 
       // Use absolute URL to ensure mobile browsers resolve correctly
-      const apiUrl = `${window.location.origin}/api/wraps/create`;
+      const apiUrl = `${window.location.origin}/api/wraps?action=create`;
       console.log('[saveWrap] Calling API:', apiUrl);
 
       const res = await fetch(apiUrl, {
@@ -1681,7 +1681,7 @@ export default function App() {
   // Login Modal - Google sign-in prompt
   const LoginModal = ({ onClose, message }) => {
     const handleGoogleLogin = () => {
-      window.location.href = '/api/auth/google';
+      window.location.href = '/api/auth?action=google';
     };
 
     return (
@@ -1727,7 +1727,7 @@ export default function App() {
     const handleUpgrade = async () => {
       setLoading(true);
       try {
-        const res = await fetch('/api/stripe/create-checkout', {
+        const res = await fetch('/api/stripe?action=checkout', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           credentials: 'include',
@@ -1799,14 +1799,14 @@ export default function App() {
     }, [onClose]);
 
     const handleLogout = async () => {
-      await fetch('/api/auth/logout', { method: 'POST', credentials: 'include' });
+      await fetch('/api/auth?action=logout', { method: 'POST', credentials: 'include' });
       setUser(null);
       onClose();
     };
 
     const handleManageSubscription = async () => {
       try {
-        const res = await fetch('/api/stripe/create-portal', { method: 'POST', credentials: 'include' });
+        const res = await fetch('/api/stripe?action=portal', { method: 'POST', credentials: 'include' });
         const data = await res.json();
         if (data.url) {
           window.location.href = data.url;
@@ -1881,7 +1881,7 @@ export default function App() {
     if (!user) return;
     setMyWrapsLoading(true);
     try {
-      const res = await fetch('/api/wraps/my-wraps', { credentials: 'include' });
+      const res = await fetch('/api/wraps?action=list', { credentials: 'include' });
       if (res.ok) {
         const data = await res.json();
         setMyWraps(data.wraps);
@@ -3841,7 +3841,7 @@ export default function App() {
     const handleDeleteWrap = async (wrapId) => {
       if (!confirm('Are you sure you want to delete this wrap?')) return;
       try {
-        const res = await fetch(`/api/wraps/${wrapId}/delete`, {
+        const res = await fetch(`/api/wraps?action=delete&id=${wrapId}`, {
           method: 'DELETE',
           credentials: 'include',
         });

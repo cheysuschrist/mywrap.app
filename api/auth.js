@@ -1,21 +1,83 @@
 import { createClient } from '@vercel/kv';
-import { createToken, setAuthCookie } from '../../lib/auth.js';
+import { nanoid } from 'nanoid';
+import { createToken, setAuthCookie, clearAuthCookie, getCurrentUser } from './lib/auth.js';
 
 const kvUrl = process.env.KV_REST_API_URL || process.env.mywrap_KV_REST_API_URL;
 const kvToken = process.env.KV_REST_API_TOKEN || process.env.mywrap_KV_REST_API_TOKEN;
 const kv = kvUrl && kvToken ? createClient({ url: kvUrl, token: kvToken }) : null;
 
+// Routes: /api/auth?action=google|callback|me|logout
 export default async function handler(req, res) {
+  // Set CORS headers
+  res.setHeader('Access-Control-Allow-Origin', req.headers.origin || '*');
+  res.setHeader('Access-Control-Allow-Credentials', 'true');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+
+  if (req.method === 'OPTIONS') {
+    return res.status(200).end();
+  }
+
+  const { action } = req.query;
+
+  switch (action) {
+    case 'google':
+      return handleGoogleRedirect(req, res);
+    case 'callback':
+      return handleGoogleCallback(req, res);
+    case 'me':
+      return handleMe(req, res);
+    case 'logout':
+      return handleLogout(req, res);
+    default:
+      return res.status(400).json({ error: 'Invalid action' });
+  }
+}
+
+// Initiate Google OAuth flow
+async function handleGoogleRedirect(req, res) {
+  if (req.method !== 'GET') {
+    return res.status(405).json({ error: 'Method not allowed' });
+  }
+
+  const clientId = process.env.GOOGLE_CLIENT_ID;
+  if (!clientId) {
+    console.error('[Auth] Missing GOOGLE_CLIENT_ID');
+    return res.status(500).json({ error: 'OAuth not configured' });
+  }
+
+  const state = nanoid(32);
+  if (kv) {
+    await kv.set(`oauth_state:${state}`, { created: Date.now() }, { ex: 600 });
+  }
+
+  const baseUrl = process.env.VERCEL_URL
+    ? `https://${process.env.VERCEL_URL}`
+    : process.env.PRODUCTION_URL || 'http://localhost:3000';
+  const redirectUri = `${baseUrl}/api/auth?action=callback`;
+
+  const params = new URLSearchParams({
+    client_id: clientId,
+    redirect_uri: redirectUri,
+    response_type: 'code',
+    scope: 'openid email profile',
+    state: state,
+    access_type: 'offline',
+    prompt: 'consent',
+  });
+
+  res.redirect(302, `https://accounts.google.com/o/oauth2/v2/auth?${params.toString()}`);
+}
+
+// Handle Google OAuth callback
+async function handleGoogleCallback(req, res) {
   if (req.method !== 'GET') {
     return res.status(405).json({ error: 'Method not allowed' });
   }
 
   const { code, state, error } = req.query;
-
-  // Determine frontend URL for redirects
   const frontendUrl = process.env.PRODUCTION_URL || 'http://localhost:5173';
 
-  // Handle OAuth errors
   if (error) {
     console.error('[Auth Callback] OAuth error:', error);
     return res.redirect(302, `${frontendUrl}?auth_error=${encodeURIComponent(error)}`);
@@ -26,23 +88,20 @@ export default async function handler(req, res) {
     return res.redirect(302, `${frontendUrl}?auth_error=missing_params`);
   }
 
-  // Verify state token
   if (kv) {
     const storedState = await kv.get(`oauth_state:${state}`);
     if (!storedState) {
       console.error('[Auth Callback] Invalid or expired state');
       return res.redirect(302, `${frontendUrl}?auth_error=invalid_state`);
     }
-    // Delete used state
     await kv.del(`oauth_state:${state}`);
   }
 
   try {
-    // Exchange code for tokens
     const baseUrl = process.env.VERCEL_URL
       ? `https://${process.env.VERCEL_URL}`
       : process.env.PRODUCTION_URL || 'http://localhost:3000';
-    const redirectUri = `${baseUrl}/api/auth/callback/google`;
+    const redirectUri = `${baseUrl}/api/auth?action=callback`;
 
     const tokenResponse = await fetch('https://oauth2.googleapis.com/token', {
       method: 'POST',
@@ -64,7 +123,6 @@ export default async function handler(req, res) {
 
     const tokens = await tokenResponse.json();
 
-    // Get user info from Google
     const userInfoResponse = await fetch('https://www.googleapis.com/oauth2/v2/userinfo', {
       headers: { Authorization: `Bearer ${tokens.access_token}` },
     });
@@ -76,24 +134,20 @@ export default async function handler(req, res) {
 
     const googleUser = await userInfoResponse.json();
     const userId = googleUser.id;
+    const now = Date.now();
 
-    // Check if user exists in Redis
     let existingUser = null;
     if (kv) {
       existingUser = await kv.hgetall(`user:${userId}`);
     }
 
-    const now = Date.now();
-
     if (existingUser) {
-      // Update existing user
       await kv.hset(`user:${userId}`, {
         name: googleUser.name,
         picture: googleUser.picture,
         updatedAt: now,
       });
     } else {
-      // Create new user
       const userData = {
         id: userId,
         email: googleUser.email,
@@ -109,12 +163,10 @@ export default async function handler(req, res) {
 
       if (kv) {
         await kv.hset(`user:${userId}`, userData);
-        // Also store email lookup
         await kv.set(`email:${googleUser.email.toLowerCase()}`, userId);
       }
     }
 
-    // Get final user data for JWT
     const finalUser = kv ? await kv.hgetall(`user:${userId}`) : {
       id: userId,
       email: googleUser.email,
@@ -123,7 +175,6 @@ export default async function handler(req, res) {
       tier: 'free',
     };
 
-    // Create JWT
     const token = await createToken({
       sub: userId,
       email: finalUser.email,
@@ -132,7 +183,6 @@ export default async function handler(req, res) {
       tier: finalUser.tier || 'free',
     });
 
-    // Set cookie and redirect
     setAuthCookie(res, token);
     return res.redirect(302, `${frontendUrl}?auth_success=true`);
 
@@ -140,4 +190,40 @@ export default async function handler(req, res) {
     console.error('[Auth Callback] Error:', error);
     return res.redirect(302, `${frontendUrl}?auth_error=server_error`);
   }
+}
+
+// Get current user
+async function handleMe(req, res) {
+  if (req.method !== 'GET') {
+    return res.status(405).json({ error: 'Method not allowed' });
+  }
+
+  try {
+    const user = await getCurrentUser(req);
+    if (!user) {
+      return res.status(401).json({ error: 'Not authenticated' });
+    }
+
+    return res.status(200).json({
+      id: user.id,
+      email: user.email,
+      name: user.name,
+      picture: user.picture,
+      tier: user.tier,
+      subscriptionStatus: user.subscriptionStatus,
+    });
+  } catch (error) {
+    console.error('[Auth /me] Error:', error);
+    return res.status(500).json({ error: 'Server error' });
+  }
+}
+
+// Logout
+async function handleLogout(req, res) {
+  if (req.method !== 'POST') {
+    return res.status(405).json({ error: 'Method not allowed' });
+  }
+
+  clearAuthCookie(res);
+  return res.status(200).json({ success: true });
 }
