@@ -2638,10 +2638,39 @@ export default function App() {
     </div>
   );
 
+  // Emoji picker position state for fixed positioning
+  const [emojiPickerPosition, setEmojiPickerPosition] = useState({ top: 0, left: 0 });
+
   const EmojiPicker = ({ selectedEmoji, onSelect, onClose }) => {
     const [showMore, setShowMore] = useState(false);
+
+    // Close on click outside
+    useEffect(() => {
+      const handleClickOutside = (e) => {
+        if (!e.target.closest('.emoji-picker-container')) {
+          onClose();
+        }
+      };
+      document.addEventListener('mousedown', handleClickOutside);
+      document.addEventListener('touchstart', handleClickOutside);
+      return () => {
+        document.removeEventListener('mousedown', handleClickOutside);
+        document.removeEventListener('touchstart', handleClickOutside);
+      };
+    }, [onClose]);
+
     return (
-      <div className={`absolute top-full left-0 mt-2 rounded-xl border border-white/10 p-3 z-[200] shadow-2xl ${isSafari ? 'bg-gray-900/98' : 'bg-black/90 backdrop-blur-2xl'}`} style={{ minWidth: '280px', pointerEvents: 'auto' }}>
+      <div
+        className={`emoji-picker-container fixed rounded-xl border border-white/10 p-3 z-[9999] shadow-2xl ${isSafari ? 'bg-gray-900/98' : 'bg-black/95 backdrop-blur-2xl'}`}
+        style={{
+          width: '300px',
+          maxWidth: 'calc(100vw - 32px)',
+          top: `${emojiPickerPosition.top}px`,
+          left: `${emojiPickerPosition.left}px`,
+          transform: 'translateY(-100%) translateY(-8px)',
+          pointerEvents: 'auto'
+        }}
+      >
         <div className="flex flex-row flex-wrap gap-2">
           {quickEmojis.map(emoji => (
             <button key={emoji} onClick={() => { onSelect(emoji); onClose(); }} className={`w-11 h-11 text-xl rounded-lg hover:bg-white/20 transition-colors flex items-center justify-center ${selectedEmoji === emoji ? 'bg-white/30' : ''}`}>{emoji}</button>
@@ -2649,7 +2678,7 @@ export default function App() {
           <button onClick={() => setShowMore(!showMore)} className="w-11 h-11 text-lg rounded-lg hover:bg-white/20 transition-colors flex items-center justify-center bg-white/10 font-bold text-white">{showMore ? '−' : '+'}</button>
         </div>
         {showMore && (
-          <div className="grid grid-cols-10 gap-1 max-h-48 overflow-y-auto pt-3 mt-3 border-t border-white/10">
+          <div className="grid grid-cols-8 gap-1 max-h-48 overflow-y-auto pt-3 mt-3 border-t border-white/10">
             {moreEmojis.map((emoji, idx) => (
               <button key={`${emoji}-${idx}`} onClick={() => { onSelect(emoji); onClose(); }} className={`w-8 h-8 text-base rounded-lg hover:bg-white/20 transition-colors flex items-center justify-center ${selectedEmoji === emoji ? 'bg-white/30' : ''}`}>{emoji}</button>
             ))}
@@ -2657,6 +2686,22 @@ export default function App() {
         )}
       </div>
     );
+  };
+
+  // Handle emoji button click - calculate position and show picker
+  const handleEmojiButtonClick = (index, buttonRef) => {
+    if (showEmojiPicker === index) {
+      setShowEmojiPicker(null);
+      return;
+    }
+    if (buttonRef) {
+      const rect = buttonRef.getBoundingClientRect();
+      setEmojiPickerPosition({
+        top: rect.top,
+        left: Math.min(rect.left, window.innerWidth - 316) // Keep within viewport
+      });
+    }
+    setShowEmojiPicker(index);
   };
 
   const MoodSelector = ({ selectedMood, onSelect }) => (
@@ -3785,16 +3830,20 @@ export default function App() {
                   {/* SLIDE 2: Finishing Touches */}
                   {cawSlide === 2 && (
                     <>
-                      <div className="animate-section-fade-in" style={{ animationDelay: '0.1s', willChange: 'opacity, transform' }}>
+                      <div className="animate-section-fade-in overflow-visible" style={{ animationDelay: '0.1s', willChange: 'opacity, transform', position: 'relative', zIndex: showEmojiPicker !== null ? 50 : 1 }}>
                         <FieldLabel>Add a Badge to your Wrap</FieldLabel>
                         <p className="text-white/50 text-sm mb-3">Celebrate achievements with custom badges that appear as special slides.</p>
-                        <div className="space-y-4">
+                        <div className="space-y-4 overflow-visible">
                           {badges.map((badge, index) => (
-                            <div key={index} className="p-4 bg-white/5 rounded-xl border border-white/10 space-y-3 overflow-visible relative" style={{ zIndex: showEmojiPicker === index ? 100 : 1, contain: 'layout' }}>
+                            <div key={index} className="p-4 bg-white/5 rounded-xl border border-white/10 space-y-3 overflow-visible relative" style={{ zIndex: showEmojiPicker === index ? 100 : 1 }}>
                               <div className="flex gap-3 items-start overflow-visible">
-                                <div className="relative" style={{ zIndex: showEmojiPicker === index ? 100 : 1 }}>
-                                  <button onClick={() => setShowEmojiPicker(showEmojiPicker === index ? null : index)} className="w-14 sm:w-16 h-14 sm:h-16 text-2xl sm:text-3xl rounded-xl bg-white/10 border-2 border-white/20 hover:bg-white/20 transition-colors flex items-center justify-center">{badge.emoji}</button>
-                                  {showEmojiPicker === index && <EmojiPicker selectedEmoji={badge.emoji} onSelect={(emoji) => updateBadge(index, 'emoji', emoji)} onClose={() => setShowEmojiPicker(null)} />}
+                                <div className="relative">
+                                  <button
+                                    onClick={(e) => handleEmojiButtonClick(index, e.currentTarget)}
+                                    className="w-14 sm:w-16 h-14 sm:h-16 text-2xl sm:text-3xl rounded-xl bg-white/10 border-2 border-white/20 hover:bg-white/20 transition-colors flex items-center justify-center"
+                                  >
+                                    {badge.emoji}
+                                  </button>
                                 </div>
                                 <div className="flex-1 space-y-2">
                                   <input type="text" value={badge.title} onChange={(e) => updateBadge(index, 'title', e.target.value)} placeholder="Badge Title (e.g., Top Reader)" className="w-full px-4 sm:px-5 py-3 rounded-xl bg-white/10 border-2 border-white/20 text-white placeholder-white/50 focus:outline-none focus:ring-2 focus:ring-white/50 backdrop-blur-sm font-medium text-sm sm:text-base" style={{ fontSize: '16px' }} />
@@ -3922,6 +3971,15 @@ export default function App() {
           }
           .animate-section-fade-in { animation: section-fade-in 0.5s ease-out forwards; opacity: 0; }
         `}</style>
+
+        {/* Emoji Picker - rendered at root level to avoid clipping */}
+        {showEmojiPicker !== null && badges[showEmojiPicker] && (
+          <EmojiPicker
+            selectedEmoji={badges[showEmojiPicker].emoji}
+            onSelect={(emoji) => updateBadge(showEmojiPicker, 'emoji', emoji)}
+            onClose={() => setShowEmojiPicker(null)}
+          />
+        )}
 
         {/* Onboarding Slideshow - shows on Tour button click or first visit */}
         {showOnboarding && (
