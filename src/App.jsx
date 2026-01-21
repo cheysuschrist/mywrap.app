@@ -46,6 +46,7 @@ export default function App() {
   const [impactPlayedSlides, setImpactPlayedSlides] = useState(new Set());
   const [textPlayedSlides, setTextPlayedSlides] = useState(new Set());
   const [slideTextTheme, setSlideTextTheme] = useState({});
+  const [slideTransitionStyle, setSlideTransitionStyle] = useState({}); // 0 = 3D slide, 1 = morph dissolve
   
 
   // Shareable wraps state
@@ -2593,10 +2594,12 @@ export default function App() {
     }, [shouldAnimate]);
 
     return (
-      <div className={`relative bg-gradient-to-br from-white/8 to-white/3 backdrop-blur-2xl rounded-3xl p-6 sm:p-8 text-center shadow-2xl border border-white/15 min-h-[600px] sm:min-h-[650px] flex flex-col justify-center overflow-hidden ${activeTransition === 'drumroll' ? 'drumroll-glow' : ''}`}>
+      <div className={`relative bg-black/40 backdrop-blur-2xl rounded-3xl p-6 sm:p-8 text-center border border-white/20 min-h-[600px] sm:min-h-[650px] flex flex-col justify-center overflow-hidden ${activeTransition === 'drumroll' ? 'drumroll-glow' : ''}`} style={{ boxShadow: '0 0 30px rgba(255, 255, 255, 0.08), 0 25px 50px -12px rgba(0, 0, 0, 0.6), inset 0 1px 0 rgba(255, 255, 255, 0.25), inset 0 -1px 0 rgba(0, 0, 0, 0.15)' }}>
         <div className="absolute inset-0 pointer-events-none overflow-hidden rounded-3xl">
-          <div className="absolute inset-0 animate-badge-shine" style={{ background: 'linear-gradient(110deg, transparent 0%, transparent 40%, rgba(255,255,255,0.2) 50%, transparent 60%, transparent 100%)', backgroundSize: '200% 100%', backgroundPosition: '200% 0' }} />
-          <div className="absolute top-0 left-0 right-0 h-1/3 bg-gradient-to-b from-white/8 to-transparent" />
+          <div className="absolute inset-0 animate-badge-shine" style={{ background: 'linear-gradient(110deg, transparent 0%, transparent 40%, rgba(255,255,255,0.12) 50%, transparent 60%, transparent 100%)', backgroundSize: '200% 100%', backgroundPosition: '200% 0' }} />
+          <div className="absolute inset-0 bg-gradient-to-b from-white/8 via-white/3 to-transparent" />
+          <div className="absolute top-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-white/35 to-transparent" />
+          <div className="absolute bottom-0 left-0 right-0 h-1/3 bg-gradient-to-t from-black/25 to-transparent" />
         </div>
         {shouldAnimate && <Fireworks />}
         <div className="flex-1 flex flex-col items-center justify-center relative z-10">
@@ -2627,7 +2630,7 @@ export default function App() {
   };
 
   const ReflectionSlide = ({ reflection, isFirstView, dateRange }) => (
-    <div className={`bg-black/40 backdrop-blur-2xl rounded-3xl p-6 sm:p-8 text-center shadow-2xl border-2 min-h-[600px] sm:min-h-[650px] flex flex-col justify-center relative overflow-hidden ${!isFirstView ? 'border-white/50' : 'border-white/30'} ${activeTransition === 'drumroll' ? 'drumroll-glow' : ''}`} style={!isFirstView ? { boxShadow: '0 0 40px rgba(255, 255, 255, 0.3), 0 0 80px rgba(255, 255, 255, 0.15), inset 0 0 40px rgba(255, 255, 255, 0.05)', animation: 'reflection-breathe 4s ease-in-out infinite' } : {}}>
+    <div className={`glass-card bg-black/40 backdrop-blur-2xl rounded-3xl p-6 sm:p-8 text-center border min-h-[600px] sm:min-h-[650px] flex flex-col justify-center relative overflow-hidden ${!isFirstView ? 'border-white/35' : 'border-white/20'} ${activeTransition === 'drumroll' ? 'drumroll-glow' : ''}`} style={!isFirstView ? { boxShadow: '0 0 40px rgba(255, 255, 255, 0.25), 0 25px 50px -12px rgba(0, 0, 0, 0.6), inset 0 1px 0 rgba(255, 255, 255, 0.3), inset 0 -1px 0 rgba(0, 0, 0, 0.15)', animation: 'reflection-breathe 4s ease-in-out infinite' } : { boxShadow: '0 0 20px rgba(255, 255, 255, 0.1), 0 25px 50px -12px rgba(0, 0, 0, 0.6), inset 0 1px 0 rgba(255, 255, 255, 0.25), inset 0 -1px 0 rgba(0, 0, 0, 0.15)' }}>
       <ReflectionGlowRing isFirstView={isFirstView} /><FloatingSparkles />
       <div className="flex-1 flex flex-col items-center justify-center relative z-10">
         <div className="text-white/60 text-lg sm:text-xl font-bold uppercase tracking-wider mb-4 sm:mb-6 flex items-center gap-3"><Sparkles size={20} className="text-white/60" />Reflection<Sparkles size={20} className="text-white/60" /></div>
@@ -2661,14 +2664,15 @@ export default function App() {
 
     return (
       <div
-        className={`emoji-picker-container fixed rounded-xl border border-white/10 p-3 z-[9999] shadow-2xl ${isSafari ? 'bg-gray-900/98' : 'bg-black/95 backdrop-blur-2xl'}`}
+        className="emoji-picker-container fixed rounded-xl border border-white/10 p-3 z-[9999] shadow-2xl bg-black/95 backdrop-blur-2xl"
         style={{
           width: '300px',
           maxWidth: 'calc(100vw - 32px)',
           top: `${emojiPickerPosition.top}px`,
           left: `${emojiPickerPosition.left}px`,
           transform: 'translateY(-100%) translateY(-8px)',
-          pointerEvents: 'auto'
+          pointerEvents: 'auto',
+          backgroundColor: isSafari ? 'rgb(10, 10, 10)' : undefined,
         }}
       >
         <div className="flex flex-row flex-wrap gap-2">
@@ -2723,7 +2727,7 @@ export default function App() {
   // Persistent animation time reference - ensures animations don't restart
   const auraAnimationStartTime = useRef(Date.now());
 
-  const DynamicBackground = ({ moodId = 'twilight', offset = 0 }) => {
+  const DynamicBackground = ({ moodId = 'twilight', offset = 0, showParticles = false }) => {
     const bgColors = getMoodBgColors(moodId);
     const auraColors = getMoodColors(moodId);
     const isRainbow = auraColors[0] === 'rainbow';
@@ -2818,10 +2822,28 @@ export default function App() {
       );
     }
 
-    // Chrome/Firefox version - full effects with premium large auras
+    // Chrome/Firefox version - full effects with premium large auras and parallax layers
     return (
       <>
         <div className="fixed inset-0 transition-all duration-1000 ease-in-out" style={{ background: `linear-gradient(135deg, ${bgColors[0]} 0%, ${bgColors[1]} 50%, ${bgColors[2]} 100%)` }} />
+
+        {/* Parallax Layer 1 - Far back, slow movement */}
+        <div className="fixed inset-0 overflow-hidden pointer-events-none parallax-layer-1">
+          <div className="absolute w-[60rem] h-[60rem] rounded-full opacity-[0.08]" style={{ top: '-20%', left: '-20%', background: `radial-gradient(circle, ${color1}40 0%, transparent 70%)`, animation: 'parallax-drift-slow 40s ease-in-out infinite' }} />
+          <div className="absolute w-[50rem] h-[50rem] rounded-full opacity-[0.06]" style={{ bottom: '-30%', right: '-20%', background: `radial-gradient(circle, ${color2}40 0%, transparent 70%)`, animation: 'parallax-drift-slow 45s ease-in-out infinite reverse' }} />
+        </div>
+
+        {/* Parallax Layer 2 - Mid layer, medium movement (only on preview) */}
+        {showParticles && (
+          <div className="fixed inset-0 overflow-hidden pointer-events-none parallax-layer-2">
+            <div className="absolute w-4 h-4 rounded-full bg-white/20" style={{ top: '15%', left: '20%', animation: 'parallax-float-med 8s ease-in-out infinite' }} />
+            <div className="absolute w-3 h-3 rounded-full bg-white/15" style={{ top: '60%', right: '15%', animation: 'parallax-float-med 10s ease-in-out infinite 2s' }} />
+            <div className="absolute w-2 h-2 rounded-full bg-white/10" style={{ top: '35%', right: '30%', animation: 'parallax-float-med 12s ease-in-out infinite 4s' }} />
+            <div className="absolute w-5 h-5 rounded-full bg-white/10" style={{ bottom: '25%', left: '15%', animation: 'parallax-float-med 9s ease-in-out infinite 1s' }} />
+          </div>
+        )}
+
+        {/* Main aura container */}
         <div className="fixed inset-0 overflow-hidden" key="aura-container-chrome">
           <div
             key="blob-chrome-1"
@@ -2863,6 +2885,31 @@ export default function App() {
             }}
           />
         </div>
+
+        {/* Parallax Layer 3 - Front layer, fast movement (foreground particles - only on preview) */}
+        {showParticles && (
+          <div className="fixed inset-0 overflow-hidden pointer-events-none parallax-layer-3">
+            <div className="absolute w-1 h-1 rounded-full bg-white/30" style={{ top: '10%', left: '40%', animation: 'parallax-twinkle 3s ease-in-out infinite' }} />
+            <div className="absolute w-1 h-1 rounded-full bg-white/25" style={{ top: '70%', left: '60%', animation: 'parallax-twinkle 4s ease-in-out infinite 1s' }} />
+            <div className="absolute w-1 h-1 rounded-full bg-white/20" style={{ top: '40%', right: '20%', animation: 'parallax-twinkle 3.5s ease-in-out infinite 0.5s' }} />
+            <div className="absolute w-1 h-1 rounded-full bg-white/25" style={{ bottom: '30%', left: '30%', animation: 'parallax-twinkle 4.5s ease-in-out infinite 2s' }} />
+          </div>
+        )}
+
+        <style>{`
+          @keyframes parallax-drift-slow {
+            0%, 100% { transform: translate(0, 0) scale(1); }
+            50% { transform: translate(5%, 3%) scale(1.05); }
+          }
+          @keyframes parallax-float-med {
+            0%, 100% { transform: translateY(0) translateX(0); opacity: 0.15; }
+            50% { transform: translateY(-20px) translateX(10px); opacity: 0.3; }
+          }
+          @keyframes parallax-twinkle {
+            0%, 100% { opacity: 0.2; transform: scale(1); }
+            50% { opacity: 0.6; transform: scale(1.5); }
+          }
+        `}</style>
       </>
     );
   };
@@ -2892,10 +2939,15 @@ export default function App() {
   };
 
   const NoiseOverlay = () => {
-    // Use the EXACT same high-quality SVG noise for both Chrome and Safari
-    // The white/bright noise grain is what makes colors look premium
+    // High-quality static SVG noise - finer grain with higher frequency and more octaves
     return (
-      <div className="fixed inset-0 opacity-[0.25] pointer-events-none" style={{ backgroundImage: 'url("data:image/svg+xml,%3Csvg viewBox=\'0 0 200 200\' xmlns=\'http://www.w3.org/2000/svg\'%3E%3Cfilter id=\'noiseFilter\'%3E%3CfeTurbulence type=\'fractalNoise\' baseFrequency=\'2.5\' numOctaves=\'3\' stitchTiles=\'stitch\'/%3E%3C/filter%3E%3Crect width=\'100%25\' height=\'100%25\' filter=\'url(%23noiseFilter)\'/%3E%3C/svg%3E")', backgroundSize: '200px 200px' }} />
+      <div
+        className="fixed inset-0 opacity-[0.2] pointer-events-none z-[1]"
+        style={{
+          backgroundImage: 'url("data:image/svg+xml,%3Csvg viewBox=\'0 0 512 512\' xmlns=\'http://www.w3.org/2000/svg\'%3E%3Cfilter id=\'noiseFilter\'%3E%3CfeTurbulence type=\'fractalNoise\' baseFrequency=\'0.8\' numOctaves=\'5\' stitchTiles=\'stitch\'/%3E%3C/filter%3E%3Crect width=\'100%25\' height=\'100%25\' filter=\'url(%23noiseFilter)\'/%3E%3C/svg%3E")',
+          backgroundSize: '512px 512px'
+        }}
+      />
     );
   };
 
@@ -2906,6 +2958,17 @@ export default function App() {
     }
     // Don't use slide animations during impact or drumroll - they have their own visuals
     if (activeTransition === 'impact' || activeTransition === 'drumroll') return '';
+
+    // Get or assign a transition style for this slide (randomly alternate between 3D slide and morph)
+    const transitionStyle = slideTransitionStyle[currentSlide] ?? (currentSlide % 3); // 0, 1 = 3D, 2 = morph
+    if (slideTransitionStyle[currentSlide] === undefined) {
+      setSlideTransitionStyle(prev => ({ ...prev, [currentSlide]: transitionStyle }));
+    }
+
+    // Use morph dissolve for every 3rd slide, 3D slide for others
+    if (transitionStyle === 2) {
+      return 'animate-morph-out';
+    }
     return slideDirection === 'next' ? 'animate-slide-out-left' : 'animate-slide-out-right';
   };
 
@@ -3992,7 +4055,7 @@ export default function App() {
   // Preview page
   return (
     <div className="min-h-screen relative overflow-hidden flex items-center justify-center p-3 sm:p-4" style={safariColorBoostStyle} onTouchStart={onTouchStart} onTouchMove={onTouchMove} onTouchEnd={onTouchEnd}>
-      <DynamicBackground moodId={selectedMood} /><NoiseOverlay />
+      <DynamicBackground moodId={selectedMood} showParticles={true} /><NoiseOverlay />
       {showConfetti && <Confetti />}
       {activeTransition === 'drumroll' && <DrumrollOverlay count={drumrollCount} fading={drumrollFading} onSkip={nextSlide} />}
 
@@ -4014,7 +4077,7 @@ export default function App() {
           }
         }} className={`transition-all duration-500 ${getSlideAnimation()} relative cursor-pointer`} style={{ transformStyle: 'preserve-3d', transitionProperty: 'opacity', transitionDuration: '300ms', opacity: (activeTransition === 'drumroll' && !drumrollReveal) ? 0 : 1 }} key={currentSlide}>
             {currentSlideInfo.type === 'title' && (
-              <div ref={coverRef} className="relative bg-black/40 backdrop-blur-2xl rounded-3xl text-center shadow-2xl border-2 border-white/30 min-h-[600px] sm:min-h-[700px] flex flex-col items-center justify-center overflow-hidden" onMouseMove={handleCoverMouseMove} onMouseLeave={() => setMousePosition({ x: 50, y: 50 })}>
+              <div ref={coverRef} className="glass-card relative bg-black/40 backdrop-blur-2xl rounded-3xl text-center border border-white/20 min-h-[600px] sm:min-h-[700px] flex flex-col items-center justify-center overflow-hidden" style={{ boxShadow: `0 0 30px ${moods.find(m => m.id === selectedMood)?.colors[0] || '#7c3aed'}15, 0 25px 50px -12px rgba(0, 0, 0, 0.6), inset 0 1px 0 rgba(255, 255, 255, 0.25), inset 0 -1px 0 rgba(0, 0, 0, 0.15)` }} onMouseMove={handleCoverMouseMove} onMouseLeave={() => setMousePosition({ x: 50, y: 50 })}>
                 {/* Dynamic cinematic background */}
                 <div className="absolute inset-0 pointer-events-none overflow-hidden rounded-3xl">
                   {/* Animated gradient mesh */}
@@ -4076,7 +4139,7 @@ export default function App() {
             )}
 
             {currentSlideInfo.type === 'stat' && (() => {
-              const stat = validStats[currentSlideInfo.index]; const isLongText = stat.value.length > 50 || stat.value.includes(':') || stat.value.includes(','); const isFirstView = stat.isHighlight && !viewedHighlights.has(currentSlideInfo.index);
+              const stat = validStats[currentSlideInfo.index]; const isLongText = stat.value.length > 50 || stat.value.includes(':') || stat.value.includes(','); const isHighlightFirstView = stat.isHighlight && !viewedHighlights.has(currentSlideInfo.index);
               // Don't show text reveal animations if impact already played for this slide
               const impactAlreadyPlayed = impactPlayedSlides.has(currentSlide);
               // Determine if this is a drumroll slide that just revealed
@@ -4096,15 +4159,28 @@ export default function App() {
               const drumrollLabelAnim = isDrumrollSlide ? 'animate-drumroll-text-label' : '';
               const drumrollValueAnim = isDrumrollSlide ? 'animate-drumroll-text-value' : '';
               const drumrollNoteAnim = isDrumrollSlide ? 'animate-drumroll-text-note' : '';
-              // Frame glow style - highlights get golden glow, regular stats get subtle white glow
+              // Frame glow style - frosted glass with strong background separation
+              const moodColors = moods.find(m => m.id === selectedMood)?.colors || ['#7c3aed', '#ec4899'];
+              const primaryColor = moodColors[0] === 'rainbow' ? '#7c3aed' : moodColors[0];
               const frameGlowStyle = stat.isHighlight
-                ? { boxShadow: '0 0 60px rgba(250, 204, 21, 0.4), 0 0 100px rgba(250, 204, 21, 0.2), inset 0 0 60px rgba(250, 204, 21, 0.1)', animation: 'glow-breathe 3s ease-in-out infinite' }
-                : { boxShadow: '0 0 40px rgba(255, 255, 255, 0.1), 0 0 80px rgba(255, 255, 255, 0.05), inset 0 0 40px rgba(255, 255, 255, 0.03)' };
+                ? {
+                    boxShadow: `0 0 50px rgba(250, 204, 21, 0.3), 0 0 100px rgba(250, 204, 21, 0.15), 0 25px 50px -12px rgba(0, 0, 0, 0.6), inset 0 1px 0 rgba(255, 255, 255, 0.3), inset 0 -1px 0 rgba(0, 0, 0, 0.2)`,
+                    animation: 'glow-breathe 3s ease-in-out infinite'
+                  }
+                : {
+                    boxShadow: `0 0 30px ${primaryColor}20, 0 25px 50px -12px rgba(0, 0, 0, 0.6), inset 0 1px 0 rgba(255, 255, 255, 0.25), inset 0 -1px 0 rgba(0, 0, 0, 0.15)`
+                  };
               return (
-                <div className={`bg-black/40 backdrop-blur-2xl rounded-3xl p-6 sm:p-8 text-center shadow-2xl border-2 min-h-[600px] sm:min-h-[650px] flex flex-col justify-between relative ${stat.isHighlight ? 'border-yellow-400/60' : 'border-white/30'} ${activeTransition === 'drumroll' ? 'drumroll-glow' : ''} ${activeTransition === 'impact' ? 'animate-impact-slam' : ''}`} style={frameGlowStyle}>
+                <div className={`glass-card bg-black/40 backdrop-blur-2xl rounded-3xl p-6 sm:p-8 text-center border min-h-[600px] sm:min-h-[650px] flex flex-col justify-between relative overflow-hidden ${stat.isHighlight ? 'border-yellow-400/50' : 'border-white/20'} ${activeTransition === 'drumroll' ? 'drumroll-glow' : ''} ${activeTransition === 'impact' ? 'animate-impact-slam' : ''}`} style={frameGlowStyle}>
+                  {/* Frosted glass overlay with soft inner glow */}
+                  <div className="absolute inset-0 pointer-events-none rounded-3xl overflow-hidden">
+                    <div className="absolute inset-0 bg-gradient-to-b from-white/10 via-white/5 to-transparent" />
+                    <div className="absolute top-0 left-0 right-0 h-px bg-gradient-to-r from-transparent via-white/40 to-transparent" />
+                    <div className="absolute bottom-0 left-0 right-0 h-1/3 bg-gradient-to-t from-black/30 to-transparent" />
+                  </div>
                   {activeTransition === 'impact' && <ImpactDots />}
                   {showDrumrollGlitter && <DrumrollGlitter />}
-                  {stat.isHighlight && starsVisible && (
+                  {stat.isHighlight && isHighlightFirstView && starsVisible && (
                     <div className="absolute inset-0 pointer-events-none overflow-hidden">
                       {starsDataRef.current.map(star => (
                         <div key={star.id} className="absolute animate-fall-star" style={{ left: `${star.left}%`, animationDelay: `${star.delay}s`, animationDuration: `${star.duration}s`, top: '-50px' }}>
@@ -4135,7 +4211,7 @@ export default function App() {
             )}
 
             {currentSlideInfo.type === 'summary' && (
-              <div className="bg-black/40 backdrop-blur-2xl rounded-3xl p-6 sm:p-10 shadow-2xl border-2 border-white/30 min-h-[600px] sm:min-h-[650px] flex flex-col justify-center relative overflow-hidden">
+              <div className="glass-card bg-black/40 backdrop-blur-2xl rounded-3xl p-6 sm:p-10 border border-white/20 min-h-[600px] sm:min-h-[650px] flex flex-col justify-center relative overflow-hidden" style={{ boxShadow: `0 0 30px ${moods.find(m => m.id === selectedMood)?.colors[0] || '#7c3aed'}15, 0 25px 50px -12px rgba(0, 0, 0, 0.6), inset 0 1px 0 rgba(255, 255, 255, 0.25), inset 0 -1px 0 rgba(0, 0, 0, 0.15)` }}>
                 {coverImage && (
                   <div className="flex justify-center mb-4 sm:mb-6">
                     <div className="w-20 h-20 sm:w-24 sm:h-24 rounded-full overflow-hidden border-4 border-white/30 shadow-xl">
@@ -4222,9 +4298,36 @@ export default function App() {
       </div>
 
       <style>{`
-        @keyframes slide-out-left { 0% { transform: translateX(0) scale(1); opacity: 1; } 100% { transform: translateX(-100px) scale(0.9); opacity: 0; } }
-        @keyframes slide-out-right { 0% { transform: translateX(0) scale(1); opacity: 1; } 100% { transform: translateX(100px) scale(0.9); opacity: 0; } }
-        @keyframes slide-in { 0% { transform: translateX(50px) scale(0.95); opacity: 0; } 100% { transform: translateX(0) scale(1); opacity: 1; } }
+        /* 3D Card Transform Animations - adds depth with perspective and rotation */
+        @keyframes slide-out-left {
+          0% { transform: perspective(1200px) translateX(0) rotateY(0deg) scale(1); opacity: 1; }
+          100% { transform: perspective(1200px) translateX(-120px) rotateY(25deg) scale(0.85); opacity: 0; }
+        }
+        @keyframes slide-out-right {
+          0% { transform: perspective(1200px) translateX(0) rotateY(0deg) scale(1); opacity: 1; }
+          100% { transform: perspective(1200px) translateX(120px) rotateY(-25deg) scale(0.85); opacity: 0; }
+        }
+        @keyframes slide-in {
+          0% { transform: perspective(1200px) translateX(60px) rotateY(-15deg) scale(0.9); opacity: 0; }
+          60% { transform: perspective(1200px) translateX(-5px) rotateY(3deg) scale(1.02); opacity: 0.9; }
+          100% { transform: perspective(1200px) translateX(0) rotateY(0deg) scale(1); opacity: 1; }
+        }
+        @keyframes slide-in-reverse {
+          0% { transform: perspective(1200px) translateX(-60px) rotateY(15deg) scale(0.9); opacity: 0; }
+          60% { transform: perspective(1200px) translateX(5px) rotateY(-3deg) scale(1.02); opacity: 0.9; }
+          100% { transform: perspective(1200px) translateX(0) rotateY(0deg) scale(1); opacity: 1; }
+        }
+        /* Morphing dissolve transitions */
+        @keyframes morph-out {
+          0% { transform: scale(1); opacity: 1; filter: blur(0); clip-path: inset(0 0 0 0 round 24px); }
+          50% { transform: scale(0.95); opacity: 0.7; filter: blur(4px); clip-path: inset(5% 5% 5% 5% round 24px); }
+          100% { transform: scale(0.85); opacity: 0; filter: blur(12px); clip-path: inset(15% 15% 15% 15% round 24px); }
+        }
+        @keyframes morph-in {
+          0% { transform: scale(1.15); opacity: 0; filter: blur(12px); clip-path: inset(15% 15% 15% 15% round 24px); }
+          50% { transform: scale(1.05); opacity: 0.7; filter: blur(4px); clip-path: inset(5% 5% 5% 5% round 24px); }
+          100% { transform: scale(1); opacity: 1; filter: blur(0); clip-path: inset(0 0 0 0 round 24px); }
+        }
         /* Impact slam animation - frame scales from big to small with satisfying weight */
         @keyframes impact-slam {
           0% { transform: scale(1.4); opacity: 0.6; }
@@ -4318,9 +4421,12 @@ export default function App() {
         @keyframes blob-safari-1 { 0%, 100% { transform: translate(0%, 0%); } 50% { transform: translate(10%, 15%); } }
         @keyframes blob-safari-2 { 0%, 100% { transform: translate(0%, 0%); } 50% { transform: translate(-10%, -10%); } }
         @keyframes blob-safari-3 { 0%, 100% { transform: translate(0%, 0%); } 50% { transform: translate(5%, -12%); } }
-        .animate-slide-out-left { animation: slide-out-left 0.5s ease-out forwards; }
-        .animate-slide-out-right { animation: slide-out-right 0.5s ease-out forwards; }
-        .animate-slide-in { animation: slide-in 0.5s ease-out forwards; }
+        .animate-slide-out-left { animation: slide-out-left 0.6s cubic-bezier(0.4, 0, 0.2, 1) forwards; transform-style: preserve-3d; }
+        .animate-slide-out-right { animation: slide-out-right 0.6s cubic-bezier(0.4, 0, 0.2, 1) forwards; transform-style: preserve-3d; }
+        .animate-slide-in { animation: slide-in 0.7s cubic-bezier(0.16, 1, 0.3, 1) forwards; transform-style: preserve-3d; }
+        .animate-slide-in-reverse { animation: slide-in-reverse 0.7s cubic-bezier(0.16, 1, 0.3, 1) forwards; transform-style: preserve-3d; }
+        .animate-morph-out { animation: morph-out 0.5s cubic-bezier(0.4, 0, 0.2, 1) forwards; }
+        .animate-morph-in { animation: morph-in 0.6s cubic-bezier(0.16, 1, 0.3, 1) forwards; }
         .animate-impact-slam { animation: impact-slam 0.6s cubic-bezier(0.34, 1.56, 0.64, 1) forwards; }
         .impact-text-stamp { animation: text-stamp 0.9s cubic-bezier(0.34, 1.56, 0.64, 1) forwards; }
         /* Theme 1 classes */
@@ -4358,6 +4464,16 @@ export default function App() {
         .animate-highlight-value { animation: highlight-value 1.4s cubic-bezier(0.22, 1, 0.36, 1) forwards; }
         .animate-highlight-note { animation: highlight-note 1.1s ease-out forwards; }
         .drumroll-glow { animation: drumroll-glow 2s ease-in-out infinite; }
+        /* Glassmorphism enhanced effects */
+        @keyframes glass-shimmer {
+          0% { transform: rotate(0deg); }
+          100% { transform: rotate(360deg); }
+        }
+        .animate-glass-shimmer { animation: glass-shimmer 15s linear infinite; }
+        .glass-card {
+          backdrop-filter: blur(24px) saturate(180%);
+          -webkit-backdrop-filter: blur(24px) saturate(180%);
+        }
         /* Drumroll text reveal animations - consistent scale-up effect */
         @keyframes drumroll-text-label { 0% { opacity: 0; transform: scale(0.8); } 100% { opacity: 1; transform: scale(1); } }
         @keyframes drumroll-text-value { 0% { opacity: 0; transform: scale(0.6); } 100% { opacity: 1; transform: scale(1); } }
