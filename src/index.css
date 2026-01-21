@@ -2,13 +2,82 @@
 @tailwind components;
 @tailwind utilities;
 
+/* Mobile viewport height fix - accounts for dynamic browser UI */
+:root {
+  --vh: 1vh;
+}
+
 * {
   margin: 0;
   padding: 0;
   box-sizing: border-box;
 }
 
+html, body, #root {
+  min-height: 100vh;
+  min-height: 100dvh; /* Dynamic viewport height for mobile */
+  min-height: calc(var(--vh, 1vh) * 100);
+}
+
 body {
   font-family: system-ui, -apple-system, sans-serif;
   -webkit-font-smoothing: antialiased;
+  background: #000;
+}
+
+/* Ensure full coverage on mobile */
+.min-h-screen {
+  min-height: 100vh;
+  min-height: 100dvh;
+  min-height: calc(var(--vh, 1vh) * 100);
+}
+
+/* Fix for iOS safe areas */
+@supports (padding: env(safe-area-inset-bottom)) {
+  body {
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+}
+
+/* Performance optimizations */
+.backdrop-blur-sm,
+.backdrop-blur-md,
+.backdrop-blur-lg,
+.backdrop-blur-xl,
+.backdrop-blur-2xl {
+  -webkit-transform: translateZ(0);
+  transform: translateZ(0);
+}
+
+/* Reduce motion for users who prefer it */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
+/* Hardware acceleration for animated elements */
+.animate-fade-in-up,
+.animate-section-fade-in,
+.animate-bounce,
+.animate-pulse {
+  -webkit-transform: translateZ(0);
+  transform: translateZ(0);
+  -webkit-backface-visibility: hidden;
+  backface-visibility: hidden;
+}
+
+/* Prevent text selection lag on mobile */
+input, textarea, select {
+  -webkit-user-select: text;
+  user-select: text;
+}
+
+/* Smoother scrolling */
+.custom-scrollbar {
+  -webkit-overflow-scrolling: touch;
 }

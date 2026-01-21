@@ -711,18 +711,12 @@ export default function App() {
 
   const editWrapped = () => { setStep('input'); setShowConfetti(false); setAttemptedSubmit(false); setValidationErrors({}); };
 
-  // Start creating - shows onboarding on first visit (form deferred until tour complete)
+  // Start creating - always shows onboarding tour first
   const startCreating = () => {
     setStep('input');
-    if (!hasSeenOnboarding) {
-      // First-time user: show tour first, defer CAW form mount until tour completes
-      setShowOnboarding(true);
-      setShowFormAfterOnboarding(false); // Don't mount form yet - wait for tour to complete
-    } else {
-      // Returning user: skip tour, show form immediately
-      setShowOnboarding(false);
-      setShowFormAfterOnboarding(true);
-    }
+    // Always show tour first, defer CAW form mount until tour completes
+    setShowOnboarding(true);
+    setShowFormAfterOnboarding(false);
   };
 
   const resetWrapped = () => {
@@ -793,6 +787,20 @@ export default function App() {
       setSelectedMusic(data.selectedMusic || '');
       setTransitions(data.transitions || {});
 
+      // Initialize audio for shared wrap if music is set
+      if (data.selectedMusic && data.selectedMusic !== 'none' && data.selectedMusic !== 'custom') {
+        const track = musicTracks.find(t => t.id === data.selectedMusic);
+        if (track?.url && track.url !== 'custom') {
+          // Create audio but don't auto-play (user needs to interact first on mobile)
+          const audio = new Audio();
+          audio.src = track.url;
+          audio.loop = true;
+          audio.volume = 0.5;
+          audioRef.current = audio;
+          setAudioPlaying(false);
+        }
+      }
+
       // Set view mode and navigate to preview
       setWrapId(id);
       setIsViewMode(true);
@@ -815,6 +823,21 @@ export default function App() {
       // Remove from DOM after fade transition
       setTimeout(() => preload.remove(), 300);
     }
+  }, []);
+
+  // Mobile viewport height fix - accounts for dynamic browser UI (address bar, etc.)
+  useEffect(() => {
+    const setVH = () => {
+      const vh = window.innerHeight * 0.01;
+      document.documentElement.style.setProperty('--vh', `${vh}px`);
+    };
+    setVH();
+    window.addEventListener('resize', setVH);
+    window.addEventListener('orientationchange', setVH);
+    return () => {
+      window.removeEventListener('resize', setVH);
+      window.removeEventListener('orientationchange', setVH);
+    };
   }, []);
 
   // Check URL on mount for shared wrap
@@ -2618,7 +2641,7 @@ export default function App() {
   const EmojiPicker = ({ selectedEmoji, onSelect, onClose }) => {
     const [showMore, setShowMore] = useState(false);
     return (
-      <div className={`absolute top-full left-0 mt-2 rounded-xl border border-white/10 p-3 z-50 shadow-2xl ${isSafari ? 'bg-gray-900/95' : 'bg-black/70 backdrop-blur-2xl'}`} style={{ minWidth: '280px' }}>
+      <div className={`absolute top-full left-0 mt-2 rounded-xl border border-white/10 p-3 z-[200] shadow-2xl ${isSafari ? 'bg-gray-900/98' : 'bg-black/90 backdrop-blur-2xl'}`} style={{ minWidth: '280px', pointerEvents: 'auto' }}>
         <div className="flex flex-row flex-wrap gap-2">
           {quickEmojis.map(emoji => (
             <button key={emoji} onClick={() => { onSelect(emoji); onClose(); }} className={`w-11 h-11 text-xl rounded-lg hover:bg-white/20 transition-colors flex items-center justify-center ${selectedEmoji === emoji ? 'bg-white/30' : ''}`}>{emoji}</button>
@@ -2800,9 +2823,27 @@ export default function App() {
   };
 
   const getDecorativeShapes = (index) => {
-    // Intentional shape pairing: hollow + filled, large + small, opposite corners
-    const shapes = [<><div className="absolute top-8 right-8 w-20 h-20 border-4 border-white/25 rounded-full"></div><div className="absolute bottom-8 left-8 w-16 h-16 bg-white/15 rotate-45"></div></>, <><div className="absolute top-10 left-10 w-24 h-24 border-4 border-white/25 rounded-full"></div><div className="absolute bottom-10 right-10 w-14 h-14 bg-white/15 rounded-full"></div></>, <><div className="absolute top-8 right-8 w-18 h-18 bg-white/15 rounded-lg rotate-12"></div><div className="absolute bottom-8 left-8 w-16 h-16 border-4 border-white/25 rotate-45"></div></>];
-    return shapes[index % shapes.length];
+    // Intentional shape pairing: hollow + filled, large + small, opposite corners with subtle animation
+    const shapes = [
+      <><div className="absolute top-8 right-8 w-20 h-20 border-4 border-white/30 rounded-full animate-float-shape-1" /><div className="absolute bottom-8 left-8 w-16 h-16 bg-white/20 rotate-45 animate-float-shape-2" /><div className="absolute top-1/3 left-6 w-8 h-8 border-2 border-white/20 rounded-full animate-float-shape-3" /></>,
+      <><div className="absolute top-10 left-10 w-24 h-24 border-4 border-white/30 rounded-full animate-float-shape-2" /><div className="absolute bottom-10 right-10 w-14 h-14 bg-white/20 rounded-full animate-float-shape-1" /><div className="absolute bottom-1/4 right-6 w-10 h-10 border-2 border-white/20 rotate-45 animate-float-shape-3" /></>,
+      <><div className="absolute top-8 right-8 w-18 h-18 bg-white/20 rounded-lg rotate-12 animate-float-shape-3" /><div className="absolute bottom-8 left-8 w-16 h-16 border-4 border-white/30 rotate-45 animate-float-shape-1" /><div className="absolute top-1/2 right-4 w-6 h-6 bg-white/15 rounded-full animate-float-shape-2" /></>,
+      <><div className="absolute top-6 left-1/4 w-12 h-12 border-3 border-white/25 rounded-full animate-float-shape-1" /><div className="absolute bottom-6 right-1/4 w-20 h-20 border-4 border-white/30 rotate-45 animate-float-shape-2" /><div className="absolute top-1/3 right-8 w-10 h-10 bg-white/15 rounded-lg animate-float-shape-3" /></>,
+      <><div className="absolute bottom-12 left-6 w-16 h-16 bg-white/20 rounded-full animate-float-shape-2" /><div className="absolute top-12 right-6 w-14 h-14 border-4 border-white/30 rotate-12 animate-float-shape-1" /><div className="absolute bottom-1/3 right-1/4 w-8 h-8 border-2 border-white/20 rounded-full animate-float-shape-3" /></>
+    ];
+    return (
+      <>
+        {shapes[index % shapes.length]}
+        <style>{`
+          @keyframes float-shape-1 { 0%, 100% { transform: translateY(0) rotate(0deg); } 50% { transform: translateY(-8px) rotate(3deg); } }
+          @keyframes float-shape-2 { 0%, 100% { transform: translateY(0) rotate(0deg); } 50% { transform: translateY(6px) rotate(-2deg); } }
+          @keyframes float-shape-3 { 0%, 100% { transform: translateY(0) scale(1); } 50% { transform: translateY(-4px) scale(1.05); } }
+          .animate-float-shape-1 { animation: float-shape-1 6s ease-in-out infinite; }
+          .animate-float-shape-2 { animation: float-shape-2 8s ease-in-out infinite 1s; }
+          .animate-float-shape-3 { animation: float-shape-3 7s ease-in-out infinite 0.5s; }
+        `}</style>
+      </>
+    );
   };
 
   const NoiseOverlay = () => {
@@ -2891,16 +2932,22 @@ export default function App() {
     }
 
     return (
-      <form onSubmit={handleSubmit} className="w-full max-w-xs px-4" onClick={e => e.stopPropagation()}>
+      <form onSubmit={handleSubmit} className="w-full max-w-xs px-4" onClick={e => e.stopPropagation()} onTouchStart={e => e.stopPropagation()}>
         <input
           ref={inputRef}
           type="email"
+          inputMode="email"
           value={email}
           onChange={(e) => setEmail(e.target.value)}
+          onFocus={(e) => e.target.scrollIntoView({ behavior: 'smooth', block: 'center' })}
           placeholder="Enter your email"
-          className="w-full px-4 py-3 rounded-xl bg-gray-800/90 border border-white/20 text-white placeholder-white/50 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-purple-500 mb-3 text-sm transition-all"
+          className="w-full px-4 py-3 rounded-xl bg-gray-800/90 border border-white/20 text-white placeholder-white/50 focus:outline-none focus:ring-2 focus:ring-purple-500 focus:border-purple-500 mb-3 text-sm will-change-transform"
+          style={{ fontSize: '16px' }} /* Prevents iOS zoom on focus */
           required
           autoComplete="email"
+          autoCorrect="off"
+          autoCapitalize="off"
+          spellCheck="false"
         />
         {error && (
           <p className="text-red-400 text-xs mb-2">{error}</p>
@@ -3590,11 +3637,11 @@ export default function App() {
                                       </button>
                                     </div>
                                     <div className="absolute top-2 right-2 text-white/40 text-xs font-medium uppercase tracking-wide">Stat</div>
-                                    <div className="flex flex-col sm:flex-row gap-3 pt-6 pl-6 sm:pt-4 sm:pl-8">
-                                      <input type="text" value={stat.label} onChange={(e) => updateStat(item.index, 'label', e.target.value)} placeholder="Stat Label (e.g., Books Read)" className={`flex-1 px-4 sm:px-5 py-3 sm:py-4 rounded-xl bg-white/[0.06] border text-white placeholder-white/40 focus:outline-none focus:bg-white/[0.08] focus:border-white/30 backdrop-blur-sm font-bold text-sm sm:text-base transition-all duration-300 shadow-[inset_0_1px_2px_rgba(0,0,0,0.1)] ${validationErrors[`stat-${item.index}-label`] ? 'border-red-500/50' : 'border-white/[0.08]'}`} />
-                                      <input type="text" value={stat.value} onChange={(e) => updateStat(item.index, 'value', e.target.value)} placeholder="Value (e.g., 42, Lagos, A+)" className={`flex-1 px-4 sm:px-5 py-3 sm:py-4 rounded-xl bg-white/[0.06] border text-white placeholder-white/40 focus:outline-none focus:bg-white/[0.08] focus:border-white/30 backdrop-blur-sm font-medium text-sm sm:text-base transition-all duration-300 shadow-[inset_0_1px_2px_rgba(0,0,0,0.1)] ${validationErrors[`stat-${item.index}-value`] ? 'border-red-500/50' : 'border-white/[0.08]'}`} />
+                                    <div className="flex flex-col gap-3 pt-6 pl-6 sm:pt-4 sm:pl-8">
+                                      <input type="text" value={stat.label} onChange={(e) => updateStat(item.index, 'label', e.target.value)} placeholder="Stat Label (e.g., Books Read)" className={`w-full px-4 py-3 rounded-xl bg-white/[0.06] border text-white placeholder-white/40 focus:outline-none focus:bg-white/[0.08] focus:border-white/30 backdrop-blur-sm font-bold text-sm sm:text-base transition-all duration-300 shadow-[inset_0_1px_2px_rgba(0,0,0,0.1)] ${validationErrors[`stat-${item.index}-label`] ? 'border-red-500/50' : 'border-white/[0.08]'}`} style={{ fontSize: '16px' }} />
+                                      <input type="text" value={stat.value} onChange={(e) => updateStat(item.index, 'value', e.target.value)} placeholder="Value (e.g., 42, Lagos, A+)" className={`w-full px-4 py-3 rounded-xl bg-white/[0.06] border text-white placeholder-white/40 focus:outline-none focus:bg-white/[0.08] focus:border-white/30 backdrop-blur-sm font-medium text-sm sm:text-base transition-all duration-300 shadow-[inset_0_1px_2px_rgba(0,0,0,0.1)] ${validationErrors[`stat-${item.index}-value`] ? 'border-red-500/50' : 'border-white/[0.08]'}`} style={{ fontSize: '16px' }} />
+                                      <input type="text" value={stat.note || ''} onChange={(e) => updateStat(item.index, 'note', e.target.value)} placeholder="Extra Info (optional)" className="w-full px-4 py-2.5 rounded-xl bg-white/[0.06] border border-white/[0.08] text-white placeholder-white/40 focus:outline-none focus:bg-white/[0.08] focus:border-white/30 backdrop-blur-sm font-medium text-sm transition-all duration-300 shadow-[inset_0_1px_2px_rgba(0,0,0,0.1)]" style={{ fontSize: '16px' }} />
                                     </div>
-                                    <input type="text" value={stat.note || ''} onChange={(e) => updateStat(item.index, 'note', e.target.value)} placeholder="Extra Info (optional)" className="w-full px-4 sm:px-5 py-2 sm:py-3 rounded-xl bg-white/[0.06] border border-white/[0.08] text-white placeholder-white/40 focus:outline-none focus:bg-white/[0.08] focus:border-white/30 backdrop-blur-sm font-medium text-sm transition-all duration-300 shadow-[inset_0_1px_2px_rgba(0,0,0,0.1)]" />
                                     <div className="flex items-center gap-2" title="Highlighted stats get a special golden glow and falling stars animation">
                                       <input type="checkbox" id={`highlight-${item.index}`} checked={stat.isHighlight} onChange={(e) => updateStat(item.index, 'isHighlight', e.target.checked)} className="w-5 h-5 rounded border-2 border-white/20 bg-white/10 checked:bg-yellow-400 checked:border-yellow-400 cursor-pointer" />
                                       <label htmlFor={`highlight-${item.index}`} className="text-white/80 text-sm font-medium cursor-pointer flex items-center gap-2"><Star size={16} className="text-yellow-300 fill-yellow-300" />Highlight this Stat</label>
@@ -3738,20 +3785,20 @@ export default function App() {
                   {/* SLIDE 2: Finishing Touches */}
                   {cawSlide === 2 && (
                     <>
-                      <div className="animate-section-fade-in" style={{ animationDelay: '0.1s' }}>
+                      <div className="animate-section-fade-in" style={{ animationDelay: '0.1s', willChange: 'opacity, transform' }}>
                         <FieldLabel>Add a Badge to your Wrap</FieldLabel>
                         <p className="text-white/50 text-sm mb-3">Celebrate achievements with custom badges that appear as special slides.</p>
                         <div className="space-y-4">
                           {badges.map((badge, index) => (
-                            <div key={index} className="p-4 bg-white/5 rounded-xl border border-white/10 space-y-3">
-                              <div className="flex gap-3 items-start">
-                                <div className="relative">
+                            <div key={index} className="p-4 bg-white/5 rounded-xl border border-white/10 space-y-3 overflow-visible relative" style={{ zIndex: showEmojiPicker === index ? 100 : 1, contain: 'layout' }}>
+                              <div className="flex gap-3 items-start overflow-visible">
+                                <div className="relative" style={{ zIndex: showEmojiPicker === index ? 100 : 1 }}>
                                   <button onClick={() => setShowEmojiPicker(showEmojiPicker === index ? null : index)} className="w-14 sm:w-16 h-14 sm:h-16 text-2xl sm:text-3xl rounded-xl bg-white/10 border-2 border-white/20 hover:bg-white/20 transition-colors flex items-center justify-center">{badge.emoji}</button>
                                   {showEmojiPicker === index && <EmojiPicker selectedEmoji={badge.emoji} onSelect={(emoji) => updateBadge(index, 'emoji', emoji)} onClose={() => setShowEmojiPicker(null)} />}
                                 </div>
                                 <div className="flex-1 space-y-2">
-                                  <input type="text" value={badge.title} onChange={(e) => updateBadge(index, 'title', e.target.value)} placeholder="Badge Title (e.g., Top Reader)" className="w-full px-4 sm:px-5 py-3 rounded-xl bg-white/10 border-2 border-white/20 text-white placeholder-white/50 focus:outline-none focus:ring-2 focus:ring-white/50 backdrop-blur-sm font-medium text-sm sm:text-base" />
-                                  <input type="text" value={badge.subtext || ''} onChange={(e) => updateBadge(index, 'subtext', e.target.value)} placeholder="Subtext (Completed Reading Goal)" className="w-full px-4 py-2 rounded-xl bg-white/5 border border-white/10 text-white/80 placeholder-white/40 focus:outline-none focus:ring-2 focus:ring-white/30 backdrop-blur-sm text-sm" />
+                                  <input type="text" value={badge.title} onChange={(e) => updateBadge(index, 'title', e.target.value)} placeholder="Badge Title (e.g., Top Reader)" className="w-full px-4 sm:px-5 py-3 rounded-xl bg-white/10 border-2 border-white/20 text-white placeholder-white/50 focus:outline-none focus:ring-2 focus:ring-white/50 backdrop-blur-sm font-medium text-sm sm:text-base" style={{ fontSize: '16px' }} />
+                                  <input type="text" value={badge.subtext || ''} onChange={(e) => updateBadge(index, 'subtext', e.target.value)} placeholder="Subtext (Completed Reading Goal)" className="w-full px-4 py-2 rounded-xl bg-white/5 border border-white/10 text-white/80 placeholder-white/40 focus:outline-none focus:ring-2 focus:ring-white/30 backdrop-blur-sm text-sm" style={{ fontSize: '16px' }} />
                                 </div>
                                 <button onClick={() => removeBadge(index)} className="px-4 py-3 bg-red-500/20 hover:bg-red-500/40 rounded-xl text-white transition-colors border-2 border-red-500/40"><Trash2 size={20} /></button>
                               </div>
@@ -3760,15 +3807,15 @@ export default function App() {
                           <button onClick={addBadge} className="w-full flex items-center justify-center gap-2 px-5 py-3 bg-white/10 hover:bg-white/20 rounded-xl text-white transition-colors border-2 border-white/20 font-bold"><Plus size={20} />Add Badge</button>
                         </div>
                       </div>
-                      <div className="animate-section-fade-in" style={{ animationDelay: '0.2s' }}>
+                      <div className="animate-section-fade-in" style={{ animationDelay: '0.2s', willChange: 'opacity, transform' }}>
                         <FieldLabel><span className="flex items-center gap-2"><Sparkles size={18} className="text-white/70" />Reflection</span></FieldLabel>
                         <p className="text-white/60 text-sm mb-3">What's something you learned?</p>
-                        <textarea value={reflection} onChange={(e) => setReflection(e.target.value)} placeholder="Share a meaningful insight or lesson..." className="w-full px-4 sm:px-5 py-3 sm:py-4 rounded-xl bg-white/10 border-2 border-white/20 text-white placeholder-white/50 focus:outline-none focus:ring-2 focus:ring-white/50 focus:border-transparent backdrop-blur-sm font-medium text-base sm:text-lg min-h-[100px] sm:min-h-[120px] resize-none" />
+                        <textarea value={reflection} onChange={(e) => setReflection(e.target.value)} placeholder="Share a meaningful insight or lesson..." className="w-full px-4 sm:px-5 py-3 sm:py-4 rounded-xl bg-white/10 border-2 border-white/20 text-white placeholder-white/50 focus:outline-none focus:ring-2 focus:ring-white/50 focus:border-transparent backdrop-blur-sm font-medium text-base sm:text-lg min-h-[100px] sm:min-h-[120px] resize-none" style={{ fontSize: '16px' }} />
                       </div>
-                      <div className="animate-section-fade-in" style={{ animationDelay: '0.3s' }}>
+                      <div className="animate-section-fade-in" style={{ animationDelay: '0.3s', willChange: 'opacity, transform' }}>
                         <FieldLabel>Background Music</FieldLabel>
                         <p className="text-white/50 text-sm mb-3">Add a soundtrack that plays while viewing your Wrap.</p>
-                        <select value={selectedMusic} onChange={(e) => handleMusicSelect(e.target.value)} className="w-full px-4 sm:px-5 py-3 sm:py-4 rounded-xl bg-white/[0.06] border border-white/[0.08] text-white focus:outline-none focus:bg-white/[0.08] focus:border-white/30 backdrop-blur-sm font-medium text-base sm:text-lg transition-all duration-300 shadow-[inset_0_1px_2px_rgba(0,0,0,0.1)]">
+                        <select value={selectedMusic} onChange={(e) => handleMusicSelect(e.target.value)} className="w-full px-4 sm:px-5 py-3 sm:py-4 rounded-xl bg-white/[0.06] border border-white/[0.08] text-white focus:outline-none focus:bg-white/[0.08] focus:border-white/30 backdrop-blur-sm font-medium text-base sm:text-lg transition-all duration-300 shadow-[inset_0_1px_2px_rgba(0,0,0,0.1)]" style={{ fontSize: '16px' }}>
                           {musicTracks.map(track => (<option key={track.id} value={track.id} className="bg-gray-900 text-white">{track.name}</option>))}
                         </select>
                         {selectedMusic === 'custom' && (
