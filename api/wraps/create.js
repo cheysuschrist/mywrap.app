@@ -1,6 +1,7 @@
 import { createClient } from '@vercel/kv';
 import { put } from '@vercel/blob';
 import { nanoid } from 'nanoid';
+import { getCurrentUser, getUserWrapCount, FREE_TIER_LIMIT } from '../lib/auth.js';
 
 // Create KV client - supports both standard and prefixed env var names
 const kvUrl = process.env.KV_REST_API_URL || process.env.mywrap_KV_REST_API_URL;
@@ -44,7 +45,8 @@ async function uploadImage(dataUrl, wrapId, prefix) {
 
 export default async function handler(req, res) {
   // Set CORS headers
-  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Origin', req.headers.origin || '*');
+  res.setHeader('Access-Control-Allow-Credentials', 'true');
   res.setHeader('Access-Control-Allow-Methods', 'POST, OPTIONS');
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
 
@@ -68,6 +70,30 @@ export default async function handler(req, res) {
     });
   }
 
+  // Check authentication (optional - allows anonymous wraps too)
+  const user = await getCurrentUser(req);
+  let userId = null;
+  let userTier = 'free';
+
+  if (user) {
+    userId = user.id;
+    userTier = user.tier || 'free';
+
+    // Check wrap limit for free users
+    if (userTier === 'free') {
+      const wrapCount = await getUserWrapCount(userId);
+      if (wrapCount >= FREE_TIER_LIMIT) {
+        console.log('[API /wraps/create] Free user at limit:', userId, wrapCount);
+        return res.status(403).json({
+          error: 'Wrap limit reached',
+          limitReached: true,
+          count: wrapCount,
+          limit: FREE_TIER_LIMIT,
+        });
+      }
+    }
+  }
+
   try {
     const {
       title,
@@ -83,7 +109,7 @@ export default async function handler(req, res) {
       transitions,
     } = req.body;
 
-    console.log('[API /wraps/create] Received wrap data:', { title, dateRange, statsCount: stats?.length, momentsCount: moments?.length });
+    console.log('[API /wraps/create] Received wrap data:', { title, dateRange, statsCount: stats?.length, momentsCount: moments?.length, userId });
 
     // Validate required fields
     if (!title) {
@@ -137,11 +163,26 @@ export default async function handler(req, res) {
       selectedMusic: selectedMusic || '',
       transitions: transitions || {},
       createdAt: Date.now(),
+      userId: userId, // null for anonymous wraps
+      isPublic: true,
     };
 
-    // Store with 1 year TTL (in seconds)
-    console.log('[API /wraps/create] Saving to KV with id:', id);
-    await kv.set(`wrap:${id}`, wrapData, { ex: 60 * 60 * 24 * 365 });
+    // Store with TTL: premium users get permanent storage, free/anonymous get 1 year
+    const ttlSeconds = (userId && userTier === 'premium') ? null : 60 * 60 * 24 * 365;
+    console.log('[API /wraps/create] Saving to KV with id:', id, 'TTL:', ttlSeconds ? '1 year' : 'permanent');
+
+    if (ttlSeconds) {
+      await kv.set(`wrap:${id}`, wrapData, { ex: ttlSeconds });
+    } else {
+      await kv.set(`wrap:${id}`, wrapData);
+    }
+
+    // If user is authenticated, add wrap to their index
+    if (userId) {
+      await kv.zadd(`user:${userId}:wraps`, { score: Date.now(), member: id });
+      console.log('[API /wraps/create] Added wrap to user index:', userId);
+    }
+
     console.log('[API /wraps/create] Wrap saved successfully');
 
     // Build the shareable URL - always use production domain for consistency

@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
-import { Share2, Plus, Trash2, ArrowRight, ArrowLeft, ArrowUp, ArrowDown, Sparkles, Volume2, VolumeX, Upload, X, Star, Edit3, ImagePlus, Book, Plane, Heart, GraduationCap, Film, Dumbbell, Lock, Bell, Check, ChevronRight, Lightbulb, Camera, Link, Copy, Loader2, Palette } from 'lucide-react';
+import { Share2, Plus, Trash2, ArrowRight, ArrowLeft, ArrowUp, ArrowDown, Sparkles, Volume2, VolumeX, Upload, X, Star, Edit3, ImagePlus, Book, Plane, Heart, GraduationCap, Film, Dumbbell, Lock, Bell, Check, ChevronRight, Lightbulb, Camera, Link, Copy, Loader2, Palette, LogOut, User, Crown, CreditCard } from 'lucide-react';
 
 export default function App() {
   const [step, setStep] = useState('home');
@@ -71,6 +71,18 @@ export default function App() {
     }
     return false;
   });
+
+  // Auth state
+  const [user, setUser] = useState(null);
+  const [authLoading, setAuthLoading] = useState(true);
+  const [showLoginModal, setShowLoginModal] = useState(false);
+  const [showUpgradeModal, setShowUpgradeModal] = useState(false);
+  const [showAccountMenu, setShowAccountMenu] = useState(false);
+  const [upgradeInfo, setUpgradeInfo] = useState({ count: 0, limit: 2 });
+
+  // My Wraps state
+  const [myWraps, setMyWraps] = useState([]);
+  const [myWrapsLoading, setMyWrapsLoading] = useState(false);
 
   // CAW (Create a Wrapped) slide-based builder state
   const [cawSlide, setCawSlide] = useState(0); // 0: Basics, 1: Build, 2: Finishing Touches
@@ -826,6 +838,42 @@ export default function App() {
     }
   }, []);
 
+  // Check authentication on mount
+  useEffect(() => {
+    const checkAuth = async () => {
+      try {
+        const res = await fetch('/api/auth/me', { credentials: 'include' });
+        if (res.ok) {
+          const userData = await res.json();
+          setUser(userData);
+        }
+      } catch (err) {
+        console.error('Auth check failed:', err);
+      } finally {
+        setAuthLoading(false);
+      }
+    };
+    checkAuth();
+
+    // Check for auth redirect params
+    const params = new URLSearchParams(window.location.search);
+    if (params.get('auth_success') === 'true') {
+      // Re-check auth after successful login
+      checkAuth();
+      // Clean up URL
+      window.history.replaceState({}, '', window.location.pathname);
+    }
+    if (params.get('auth_error')) {
+      console.error('Auth error:', params.get('auth_error'));
+      window.history.replaceState({}, '', window.location.pathname);
+    }
+    if (params.get('upgrade') === 'success') {
+      // Re-check auth to get updated tier
+      checkAuth();
+      window.history.replaceState({}, '', window.location.pathname);
+    }
+  }, []);
+
   // Mobile viewport height fix - accounts for dynamic browser UI (address bar, etc.)
   useEffect(() => {
     const setVH = () => {
@@ -913,6 +961,30 @@ export default function App() {
   // Save wrap and get shareable link
   const saveWrap = useCallback(async () => {
     if (isSaving) return;
+
+    // Check if user is logged in
+    if (!user) {
+      setShowLoginModal(true);
+      return;
+    }
+
+    // Check wrap limit for free users (pre-check before upload)
+    if (user.tier === 'free') {
+      try {
+        const checkRes = await fetch('/api/wraps/my-wraps', { credentials: 'include' });
+        if (checkRes.ok) {
+          const { count, limit } = await checkRes.json();
+          if (count >= limit) {
+            setUpgradeInfo({ count, limit });
+            setShowUpgradeModal(true);
+            return;
+          }
+        }
+      } catch (err) {
+        console.error('[saveWrap] Limit check failed:', err);
+      }
+    }
+
     setIsSaving(true);
 
     try {
@@ -967,6 +1039,7 @@ export default function App() {
       const res = await fetch(apiUrl, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
         body: JSON.stringify(wrapData),
       });
 
@@ -985,6 +1058,13 @@ export default function App() {
 
       if (!res.ok) {
         const errorData = await res.json().catch(() => ({}));
+        // Handle wrap limit reached
+        if (errorData.limitReached) {
+          setUpgradeInfo({ count: errorData.count, limit: errorData.limit });
+          setShowUpgradeModal(true);
+          setIsSaving(false);
+          return;
+        }
         throw new Error(errorData.error || 'Failed to save wrap');
       }
 
@@ -1597,6 +1677,229 @@ export default function App() {
       </div>
     );
   };
+
+  // Login Modal - Google sign-in prompt
+  const LoginModal = ({ onClose, message }) => {
+    const handleGoogleLogin = () => {
+      window.location.href = '/api/auth/google';
+    };
+
+    return (
+      <div className={`fixed inset-0 z-50 flex items-center justify-center ${isSafari ? 'bg-black/60' : 'bg-black/40 backdrop-blur-sm'}`} onClick={onClose}>
+        <div className={`rounded-2xl p-6 border border-white/20 max-w-sm w-full mx-4 shadow-2xl ${isSafari ? 'bg-gray-900/95' : 'bg-white/10 backdrop-blur-2xl'}`} onClick={e => e.stopPropagation()}>
+          <div className="text-center mb-6">
+            <div className="w-16 h-16 rounded-full bg-gradient-to-br from-violet-500 to-purple-600 flex items-center justify-center mx-auto mb-4">
+              <User size={32} className="text-white" />
+            </div>
+            <h3 className="text-xl font-bold text-white mb-2">Sign In to MyWrap</h3>
+            <p className="text-white/60 text-sm">{message || 'Sign in to save your wraps and access them anywhere.'}</p>
+          </div>
+
+          <button
+            onClick={handleGoogleLogin}
+            className="w-full py-4 bg-white text-black rounded-xl font-bold flex items-center justify-center gap-3 hover:bg-white/90 transition-all active:scale-[0.98]"
+          >
+            <svg className="w-5 h-5" viewBox="0 0 24 24">
+              <path fill="#4285F4" d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"/>
+              <path fill="#34A853" d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"/>
+              <path fill="#FBBC05" d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z"/>
+              <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/>
+            </svg>
+            Continue with Google
+          </button>
+
+          <p className="text-white/40 text-xs text-center mt-4">
+            Free to sign up. No password needed.
+          </p>
+
+          <button onClick={onClose} className="w-full mt-3 py-3 text-white/60 hover:text-white transition-colors text-sm">
+            Maybe Later
+          </button>
+        </div>
+      </div>
+    );
+  };
+
+  // Upgrade Modal - Premium upgrade prompt (shown when free user hits limit)
+  const UpgradeModal = ({ onClose, currentCount, limit }) => {
+    const [loading, setLoading] = useState(false);
+
+    const handleUpgrade = async () => {
+      setLoading(true);
+      try {
+        const res = await fetch('/api/stripe/create-checkout', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+        });
+        const data = await res.json();
+        if (data.url) {
+          window.location.href = data.url;
+        }
+      } catch (err) {
+        console.error('Upgrade error:', err);
+        setLoading(false);
+      }
+    };
+
+    return (
+      <div className={`fixed inset-0 z-50 flex items-center justify-center ${isSafari ? 'bg-black/60' : 'bg-black/40 backdrop-blur-sm'}`} onClick={onClose}>
+        <div className={`rounded-2xl p-6 border border-white/20 max-w-sm w-full mx-4 shadow-2xl ${isSafari ? 'bg-gray-900/95' : 'bg-white/10 backdrop-blur-2xl'}`} onClick={e => e.stopPropagation()}>
+          <div className="text-center mb-6">
+            <div className="w-16 h-16 rounded-full bg-gradient-to-br from-yellow-400 to-orange-500 flex items-center justify-center mx-auto mb-4">
+              <Crown size={32} className="text-white" />
+            </div>
+            <h3 className="text-xl font-bold text-white mb-2">You've Hit Your Limit!</h3>
+            <p className="text-white/60 text-sm">
+              Free accounts can save up to {limit} wraps. You have {currentCount}.
+              Upgrade to Premium for unlimited wraps.
+            </p>
+          </div>
+
+          <div className="bg-white/5 rounded-xl p-4 mb-6 border border-white/10">
+            <div className="flex items-center justify-between mb-3">
+              <span className="text-white font-bold">MyWrap Premium</span>
+              <span className="text-white">$4.99/month</span>
+            </div>
+            <ul className="space-y-2 text-white/70 text-sm">
+              <li className="flex items-center gap-2"><Check size={14} className="text-green-400" /> Unlimited saved wraps</li>
+              <li className="flex items-center gap-2"><Check size={14} className="text-green-400" /> Wraps never expire</li>
+              <li className="flex items-center gap-2"><Check size={14} className="text-green-400" /> Priority support</li>
+            </ul>
+          </div>
+
+          <button
+            onClick={handleUpgrade}
+            disabled={loading}
+            className="w-full py-4 bg-gradient-to-r from-yellow-400 to-orange-500 text-black rounded-xl font-bold hover:opacity-90 transition-all disabled:opacity-50 active:scale-[0.98]"
+          >
+            {loading ? <Loader2 className="animate-spin mx-auto" size={20} /> : 'Upgrade to Premium'}
+          </button>
+
+          <button onClick={onClose} className="w-full mt-3 py-3 text-white/60 hover:text-white transition-colors text-sm">
+            Maybe Later
+          </button>
+        </div>
+      </div>
+    );
+  };
+
+  // Account Menu - Dropdown for logged-in users
+  const AccountMenu = ({ user: currentUser, onClose }) => {
+    const menuRef = useRef(null);
+
+    useEffect(() => {
+      const handleClickOutside = (e) => {
+        if (menuRef.current && !menuRef.current.contains(e.target)) {
+          onClose();
+        }
+      };
+      document.addEventListener('mousedown', handleClickOutside);
+      return () => document.removeEventListener('mousedown', handleClickOutside);
+    }, [onClose]);
+
+    const handleLogout = async () => {
+      await fetch('/api/auth/logout', { method: 'POST', credentials: 'include' });
+      setUser(null);
+      onClose();
+    };
+
+    const handleManageSubscription = async () => {
+      try {
+        const res = await fetch('/api/stripe/create-portal', { method: 'POST', credentials: 'include' });
+        const data = await res.json();
+        if (data.url) {
+          window.location.href = data.url;
+        }
+      } catch (err) {
+        console.error('Portal error:', err);
+      }
+    };
+
+    const handleMyWraps = () => {
+      setStep('my-wraps');
+      onClose();
+    };
+
+    return (
+      <div ref={menuRef} className={`absolute top-14 right-0 border border-white/10 rounded-xl p-4 min-w-[220px] shadow-2xl z-50 ${isSafari ? 'bg-gray-900/98' : 'bg-gray-900/95 backdrop-blur-xl'}`}>
+        <div className="flex items-center gap-3 mb-4 pb-4 border-b border-white/10">
+          <img src={currentUser.picture} alt="" className="w-10 h-10 rounded-full" />
+          <div className="min-w-0">
+            <p className="text-white font-medium truncate">{currentUser.name}</p>
+            <p className="text-white/50 text-xs truncate">{currentUser.email}</p>
+          </div>
+        </div>
+
+        {currentUser.tier === 'premium' && (
+          <div className="mb-3 px-3 py-1.5 bg-gradient-to-r from-yellow-400/20 to-orange-500/20 rounded-lg border border-yellow-400/30">
+            <span className="text-yellow-400 text-xs font-medium flex items-center gap-1.5">
+              <Crown size={12} /> Premium Member
+            </span>
+          </div>
+        )}
+
+        <div className="space-y-1">
+          <button
+            onClick={handleMyWraps}
+            className="w-full text-left px-3 py-2.5 text-white/80 hover:bg-white/10 rounded-lg transition-all flex items-center gap-2"
+          >
+            <Sparkles size={16} /> My Wraps
+          </button>
+
+          {currentUser.tier === 'free' && (
+            <button
+              onClick={() => { setShowUpgradeModal(true); onClose(); }}
+              className="w-full text-left px-3 py-2.5 text-yellow-400 hover:bg-yellow-400/10 rounded-lg transition-all flex items-center gap-2"
+            >
+              <Crown size={16} /> Upgrade to Premium
+            </button>
+          )}
+
+          {currentUser.tier === 'premium' && (
+            <button
+              onClick={handleManageSubscription}
+              className="w-full text-left px-3 py-2.5 text-white/80 hover:bg-white/10 rounded-lg transition-all flex items-center gap-2"
+            >
+              <CreditCard size={16} /> Manage Subscription
+            </button>
+          )}
+
+          <button
+            onClick={handleLogout}
+            className="w-full text-left px-3 py-2.5 text-red-400 hover:bg-red-400/10 rounded-lg transition-all flex items-center gap-2"
+          >
+            <LogOut size={16} /> Sign Out
+          </button>
+        </div>
+      </div>
+    );
+  };
+
+  // Fetch user's wraps
+  const fetchMyWraps = useCallback(async () => {
+    if (!user) return;
+    setMyWrapsLoading(true);
+    try {
+      const res = await fetch('/api/wraps/my-wraps', { credentials: 'include' });
+      if (res.ok) {
+        const data = await res.json();
+        setMyWraps(data.wraps);
+        setUpgradeInfo({ count: data.count, limit: data.limit });
+      }
+    } catch (err) {
+      console.error('Failed to fetch wraps:', err);
+    } finally {
+      setMyWrapsLoading(false);
+    }
+  }, [user]);
+
+  // Fetch wraps when viewing my-wraps page
+  useEffect(() => {
+    if (step === 'my-wraps' && user) {
+      fetchMyWraps();
+    }
+  }, [step, user, fetchMyWraps]);
 
   // Onboarding Slideshow - shows on first visit to explain features
   const OnboardingSlideshow = ({ onClose }) => {
@@ -3110,6 +3413,34 @@ export default function App() {
         <DynamicBackground moodId="twilight" />
         <NoiseOverlay forceShow={true} />
 
+        {/* Auth Header */}
+        {!authLoading && (
+          <div className="fixed top-4 right-4 z-50">
+            {user ? (
+              <div className="relative">
+                <button
+                  onClick={() => setShowAccountMenu(!showAccountMenu)}
+                  className={`flex items-center gap-2 px-3 py-2 rounded-full border border-white/20 hover:bg-white/20 transition-all ${isSafari ? 'bg-gray-900/80' : 'bg-white/10 backdrop-blur-sm'}`}
+                >
+                  <img src={user.picture} alt="" className="w-6 h-6 rounded-full" />
+                  <span className="text-white text-sm hidden sm:inline">{user.name?.split(' ')[0]}</span>
+                  {user.tier === 'premium' && <Crown size={12} className="text-yellow-400" />}
+                </button>
+                {showAccountMenu && (
+                  <AccountMenu user={user} onClose={() => setShowAccountMenu(false)} />
+                )}
+              </div>
+            ) : (
+              <button
+                onClick={() => setShowLoginModal(true)}
+                className={`px-4 py-2 rounded-full border border-white/20 text-white text-sm hover:bg-white/20 transition-all ${isSafari ? 'bg-gray-900/80' : 'bg-white/10 backdrop-blur-sm'}`}
+              >
+                Sign In
+              </button>
+            )}
+          </div>
+        )}
+
         {/* Floating aura orbs for depth - more noticeable movement */}
         <div className="absolute inset-0 overflow-hidden pointer-events-none">
           <div className="absolute w-[600px] h-[600px] rounded-full blur-[150px] landing-aura-1 opacity-25"
@@ -3503,9 +3834,168 @@ export default function App() {
     );
   }
 
+  // My Wraps page - user's saved wraps
+  if (step === 'my-wraps') {
+    const moodColors = moods.find(m => m.id === 'twilight')?.colors || ['#7c3aed', '#c4b5fd'];
+
+    const handleDeleteWrap = async (wrapId) => {
+      if (!confirm('Are you sure you want to delete this wrap?')) return;
+      try {
+        const res = await fetch(`/api/wraps/${wrapId}/delete`, {
+          method: 'DELETE',
+          credentials: 'include',
+        });
+        if (res.ok) {
+          setMyWraps(prev => prev.filter(w => w.id !== wrapId));
+          setUpgradeInfo(prev => ({ ...prev, count: prev.count - 1 }));
+        }
+      } catch (err) {
+        console.error('Delete failed:', err);
+      }
+    };
+
+    const handleViewWrap = (wrapId) => {
+      window.location.href = `/w/${wrapId}`;
+    };
+
+    return (
+      <div className="min-h-screen relative" style={safariColorBoostStyle}>
+        <DynamicBackground moodId="twilight" />
+        <NoiseOverlay />
+
+        <div className="relative z-10 max-w-4xl mx-auto px-4 py-8 sm:py-12">
+          {/* Header */}
+          <div className="flex items-center justify-between mb-8">
+            <button
+              onClick={() => setStep('home')}
+              className="flex items-center gap-2 text-white/60 hover:text-white transition-colors"
+            >
+              <ArrowLeft size={20} />
+              <span>Back</span>
+            </button>
+
+            {user?.tier === 'free' && (
+              <button
+                onClick={() => setShowUpgradeModal(true)}
+                className="px-4 py-2 bg-gradient-to-r from-yellow-400 to-orange-500 text-black rounded-full text-sm font-bold hover:opacity-90 transition-all flex items-center gap-2"
+              >
+                <Crown size={14} />
+                Upgrade
+              </button>
+            )}
+          </div>
+
+          {/* Title */}
+          <div className="mb-8">
+            <h1 className="text-3xl sm:text-4xl font-bold text-white mb-2">My Wraps</h1>
+            <p className="text-white/60">
+              {user?.tier === 'free'
+                ? `${upgradeInfo.count} of ${upgradeInfo.limit} wraps saved`
+                : `${myWraps.length} wraps saved`
+              }
+            </p>
+          </div>
+
+          {/* Wraps Grid */}
+          {myWrapsLoading ? (
+            <div className="flex items-center justify-center py-20">
+              <Loader2 className="animate-spin text-white" size={32} />
+            </div>
+          ) : myWraps.length === 0 ? (
+            <div className="text-center py-20">
+              <div className="w-20 h-20 rounded-full bg-white/10 flex items-center justify-center mx-auto mb-4">
+                <Sparkles size={32} className="text-white/40" />
+              </div>
+              <p className="text-white/50 mb-6">You haven't saved any wraps yet.</p>
+              <button
+                onClick={() => setStep('home')}
+                className="px-6 py-3 bg-white text-black rounded-full font-bold hover:bg-white/90 transition-all"
+              >
+                Create Your First Wrap
+              </button>
+            </div>
+          ) : (
+            <div className="grid gap-4 sm:grid-cols-2">
+              {myWraps.map(wrap => {
+                const wrapMood = moods.find(m => m.id === wrap.selectedMood) || moods[0];
+                return (
+                  <div
+                    key={wrap.id}
+                    className={`group relative rounded-2xl p-5 border border-white/10 transition-all hover:border-white/20 hover:scale-[1.02] cursor-pointer ${isSafari ? 'bg-gray-900/80' : 'bg-white/5 backdrop-blur-sm'}`}
+                    onClick={() => handleViewWrap(wrap.id)}
+                  >
+                    {/* Mood accent */}
+                    <div
+                      className="absolute top-0 left-0 right-0 h-1 rounded-t-2xl"
+                      style={{ background: `linear-gradient(to right, ${wrapMood.colors[0]}, ${wrapMood.colors[1] || wrapMood.colors[0]})` }}
+                    />
+
+                    {/* Cover image or gradient */}
+                    <div className="h-32 rounded-xl mb-4 overflow-hidden">
+                      {wrap.coverImage ? (
+                        <img src={wrap.coverImage} alt="" className="w-full h-full object-cover" />
+                      ) : (
+                        <div
+                          className="w-full h-full"
+                          style={{ background: `linear-gradient(135deg, ${wrapMood.bgColors[0]}, ${wrapMood.bgColors[1]})` }}
+                        />
+                      )}
+                    </div>
+
+                    {/* Content */}
+                    <h3 className="text-lg font-bold text-white mb-1 truncate">{wrap.title}</h3>
+                    {wrap.dateRange && (
+                      <p className="text-white/50 text-sm mb-3">{wrap.dateRange}</p>
+                    )}
+
+                    <div className="flex items-center justify-between">
+                      <span className="text-white/40 text-xs">
+                        {new Date(wrap.createdAt).toLocaleDateString()}
+                      </span>
+                      <button
+                        onClick={(e) => { e.stopPropagation(); handleDeleteWrap(wrap.id); }}
+                        className="p-2 text-white/40 hover:text-red-400 hover:bg-red-400/10 rounded-lg transition-all opacity-0 group-hover:opacity-100"
+                      >
+                        <Trash2 size={16} />
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+
+        {/* Modals */}
+        {showUpgradeModal && (
+          <UpgradeModal
+            onClose={() => setShowUpgradeModal(false)}
+            currentCount={upgradeInfo.count}
+            limit={upgradeInfo.limit}
+          />
+        )}
+      </div>
+    );
+  }
+
   // Home page
   if (step === 'home') {
-    return <HomePage />;
+    return (
+      <>
+        <HomePage />
+        {/* Auth Modals */}
+        {showLoginModal && (
+          <LoginModal onClose={() => setShowLoginModal(false)} />
+        )}
+        {showUpgradeModal && (
+          <UpgradeModal
+            onClose={() => setShowUpgradeModal(false)}
+            currentCount={upgradeInfo.count}
+            limit={upgradeInfo.limit}
+          />
+        )}
+      </>
+    );
   }
 
   // CAW (Create a Wrapped) - Slide-based builder
@@ -4047,6 +4537,18 @@ export default function App() {
         {/* Onboarding Slideshow - shows on Tour button click or first visit */}
         {showOnboarding && (
           <OnboardingSlideshow onClose={() => { setShowOnboarding(false); setShowFormAfterOnboarding(true); }} />
+        )}
+
+        {/* Auth Modals */}
+        {showLoginModal && (
+          <LoginModal onClose={() => setShowLoginModal(false)} />
+        )}
+        {showUpgradeModal && (
+          <UpgradeModal
+            onClose={() => setShowUpgradeModal(false)}
+            currentCount={upgradeInfo.count}
+            limit={upgradeInfo.limit}
+          />
         )}
       </div>
     );
